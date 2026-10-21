@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rapid-MLX-panel</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14160f;
+    --card: #1c1f16;
+    --line: #34382c;
+    --text: #f3f0e6;
+    --muted: #b7b3a6;
+    --accent: #d6e27a;
+    --danger: #e7a090;
+    --ok: #9ddeaf;
+    --warn: #e6c37a;
+    --input: #10120c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+  }
+  header.top, main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+  header.top { padding: 28px 0 8px; }
+  h1 { font-size: 28px; font-weight: 650; margin: 0 0 6px; letter-spacing: -0.03em; }
+  h2 { font-size: 18px; margin: 0; }
+  p { margin: 0; }
+  .lede, .hint, .meta { color: var(--muted); }
+  .lede { max-width: 68ch; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button, .ghost {
+    background: var(--accent);
+    color: #1a1c12;
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  button.secondary, button.danger, button.quiet {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--line);
+    font-weight: 550;
+  }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .card, .banner {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin: 14px 0;
+  }
+  .banner { color: var(--danger); }
+  .status {
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--line);
+  }
+  .status.running { color: var(--ok); }
+  .status.external, .status.detached { color: var(--warn); }
+  .status.stopped { color: var(--muted); }
+  .head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .meta { margin-top: 4px; }
+  .live, pre {
+    margin-top: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; margin-top: 14px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  label.wide { grid-column: 1 / -1; }
+  input, select {
+    background: var(--input);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    width: 100%;
+    padding: 8px;
+    font: inherit;
+  }
+  .check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+  article[data-engine="tensorfold"] .rapid-only { display: none; }
+  article[data-engine="rapid-mlx"] .tensorfold-only { display: none; }
+  .advice { margin: 0; grid-column: 1 / -1; font-size: 13px; }
+  .actions { margin-top: 12px; }
+  h3 { font-size: 13px; font-weight: 650; margin: 18px 0 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  [data-act="edit"] { display: none; }
+  .status .short { display: none; }
+  body.simplified header.top { padding: 12px 0 4px; }
+  body.simplified h1 { font-size: 20px; margin-bottom: 0; }
+  body.simplified .lede,
+  body.simplified main > h3:has(+ #unassigned.hint),
+  body.simplified #unassigned.hint { display: none; }
+  body.simplified #state-path { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.simplified #slots > .card:not(.open) {
+    display: grid;
+    grid-template-columns: 7rem minmax(8rem, 0.7fr) minmax(14rem, 1.6fr) auto auto;
+    align-items: center;
+    gap: 6px 12px;
+    margin: 4px 0;
+    padding: 6px 10px;
+  }
+  body.simplified #slots > .card:not(.open) .head,
+  body.simplified #slots > .card:not(.open) .head > div,
+  body.simplified #slots > .card:not(.open) form { display: contents; }
+  body.simplified #slots > .card:not(.open) h2 { grid-column: 1; font-size: 15px; }
+  body.simplified #slots > .card:not(.open) .meta {
+    grid-column: 2;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  body.simplified #slots > .card:not(.open) .meta-model { display: none; }
+  body.simplified #slots > .card:not(.open) label.weights {
+    grid-column: 3;
+    display: block;
+    min-width: 0;
+  }
+  body.simplified #slots > .card:not(.open) label.weights .field-name { display: none; }
+  body.simplified #slots > .card:not(.open) form > label:not(.weights),
+  body.simplified #slots > .card:not(.open) h3,
+  body.simplified #slots > .card:not(.open) .preview,
+  body.simplified #slots > .card:not(.open) .advice,
+  body.simplified #slots > .card:not(.open) .live,
+  body.simplified #slots > .card:not(.open) .log,
+  body.simplified #slots > .card:not(.open) [data-act="save"],
+  body.simplified #slots > .card:not(.open) [data-act="log"],
+  body.simplified #slots > .card:not(.open) [data-act="delete"] { display: none; }
+  body.simplified #slots > .card.dirty:not(.open) [data-act="save"] { display: inline-block; }
+  body.simplified #slots > .card:not(.open) .status { grid-column: 4; }
+  body.simplified #slots > .card:not(.open) .actions { grid-column: 5; }
+  body.simplified #slots > .card:not(.open) .actions { margin: 0; flex-wrap: nowrap; }
+  body.simplified #slots > .card:not(.open) .actions button { padding: 4px 8px; }
+  body.simplified [data-act="edit"] { display: inline-block; }
+  body.simplified .status .long { display: none; }
+  body.simplified .status .short { display: inline; }
+  body.simplified #unassigned .card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0;
+    padding: 6px 10px;
+  }
+  body.simplified #unassigned .live {
+    margin: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (max-width: 800px) {
+    form { grid-template-columns: 1fr; }
+    body.simplified #slots > .card:not(.open) { grid-template-columns: 1fr auto; }
+    body.simplified #slots > .card:not(.open) h2,
+    body.simplified #slots > .card:not(.open) .meta,
+    body.simplified #slots > .card:not(.open) label.weights,
+    body.simplified #slots > .card:not(.open) .status { grid-column: auto; }
+    body.simplified #slots > .card:not(.open) label.weights { grid-column: 1 / -1; }
+    body.simplified #slots > .card:not(.open) .actions { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Rapid-MLX-panel</h1>
+  <p class="lede">Varje plats är en port, ett API-namn och en uppsättning vikter. Valen sparas på disk och finns kvar efter omstart. En modell som redan körs lämnas ifred tills du stoppar eller startar om den.</p>
+  <div class="row" style="margin-top:14px">
+    <button type="button" id="new-slot">Ny plats</button>
+    <button type="button" class="secondary" id="view-toggle" aria-pressed="false">Förenklad vy</button>
+    <button type="button" class="secondary" id="reload-models">Uppdatera vikter</button>
+    <span class="hint" id="state-path"></span>
+  </div>
+</header>
+<main>
+  <div id="banner" class="banner" hidden></div>
+  <div id="draft"></div>
+  <div id="slots"></div>
+  <h3>Servrar utan plats</h3>
+  <div id="unassigned" class="hint">Inga.</div>
+</main>
+<script>
+const STATUS = {
+  running: "Körs via panelen",
+  external: "Körs, startad utanför panelen",
+  detached: "Processen lever på en annan port",
+  stopped: "Stoppad",
+};
+const SHORT_STATUS = {
+  running: "Körs",
+  external: "Extern",
+  detached: "Annan port",
+  stopped: "Stoppad",
+};
+const VIEW_KEY = "rapid-mlx-panel-view";
+const dirty = new Set();
+let slots = [];
+let models = [];
+let profiles = {};
+
+function showError(error) {
+  const banner = document.querySelector("#banner");
+  banner.hidden = !error;
+  banner.textContent = error ? String(error.message || error) : "";
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+function sizeLabel(bytes) {
+  if (!bytes) return "";
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+}
+
+function weightValue(model) {
+  return model.alias || model.repo || "";
+}
+
+function weightMatches(model, value) {
+  return Boolean(value) && (value === model.alias || value === model.repo);
+}
+
+function weightLabel(model) {
+  const name = model.alias && model.alias !== model.repo ? `${model.alias} · ${model.repo}` : (model.repo || model.alias || "");
+  const state = { incomplete: "ofullständig", unmapped: "okatalogiserad", external: "extern" }[model.state] || "";
+  return [name, sizeLabel(model.size_bytes), state].filter(Boolean).join(" · ");
+}
+
+function chosenValue(select) {
+  if (select.options.length) return select.value;
+  return select.dataset.selected || "";
+}
+
+function fillSelect(select) {
+  const current = chosenValue(select);
+  const seen = new Set();
+  const ready = [];
+  const incomplete = [];
+  for (const model of models) {
+    const id = weightValue(model);
+    if (!id || seen.has(id) || seen.has(model.repo)) continue;
+    seen.add(id);
+    if (model.repo) seen.add(model.repo);
+    (model.state === "incomplete" ? incomplete : ready).push(model);
+  }
+  const fragment = document.createDocumentFragment();
+  if (select.classList.contains("weight-select")) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Välj vikter";
+    fragment.appendChild(placeholder);
+  }
+  if (select.classList.contains("embedding-select") || select.classList.contains("drafter-select")) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "ingen";
+    fragment.appendChild(empty);
+  }
+  const addGroup = (title, items) => {
+    if (!items.length) return;
+    const group = document.createElement("optgroup");
+    group.label = title;
+    for (const model of items) {
+      const option = document.createElement("option");
+      const matched = weightMatches(model, current);
+      option.value = matched ? current : weightValue(model);
+      option.textContent = weightLabel(model);
+      group.appendChild(option);
+    }
+    fragment.appendChild(group);
+  };
+  addGroup(models.length ? "Tillgängliga" : "Laddar vikter…", ready);
+  addGroup("Ofullständiga", incomplete);
+  if (!models.length) {
+    const waiting = document.createElement("option");
+    waiting.value = "";
+    waiting.disabled = true;
+    waiting.textContent = "Laddar vikter…";
+    fragment.appendChild(waiting);
+  }
+  const known = ready.concat(incomplete).some((model) => weightMatches(model, current));
+  if (current && !known) {
+    const option = document.createElement("option");
+    option.value = current;
+    option.textContent = `${current} · sparad`;
+    fragment.appendChild(option);
+  }
+  select.replaceChildren(fragment);
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function catalogDraftLabel(profile) {
+  if (!profile) return "Ange utkast själv";
+  const draft = profile.mtp_draft_model || "";
+  const depth = profile.mtp_speculative_tokens;
+  if (profile.supports_native_mtp && !draft) {
+    return depth ? `Katalog · inbyggd MTP · djup ${depth}` : "Katalog · inbyggd MTP";
+  }
+  if (!draft) return "Inget katalogutkast";
+  const cached = models.some((model) => weightMatches(model, draft));
+  const where = cached ? "cachad" : "hämtas vid start";
+  const name = draft === profile.hf_path ? "samma checkpoint" : draft;
+  return `Katalog · ${name} · djup ${depth} · ${where}`;
+}
+
+function fillMtpSelect(select) {
+  const form = select.form;
+  const modelField = form && form.elements.model;
+  const model = (modelField && (modelField.value || modelField.dataset.selected)) || "";
+  const profile = profiles[model] || null;
+  const current = chosenValue(select);
+  const fragment = document.createDocumentFragment();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = catalogDraftLabel(profile);
+  fragment.appendChild(empty);
+  const seen = new Set();
+  const ready = [];
+  for (const item of models) {
+    const id = weightValue(item);
+    if (!id || seen.has(id) || item.state === "incomplete") continue;
+    seen.add(id);
+    if (item.repo) seen.add(item.repo);
+    ready.push(item);
+  }
+  if (ready.length) {
+    const group = document.createElement("optgroup");
+    group.label = "Cachade vikter";
+    for (const item of ready) {
+      const option = document.createElement("option");
+      const matched = weightMatches(item, current);
+      option.value = matched ? current : weightValue(item);
+      option.textContent = weightLabel(item);
+      group.appendChild(option);
+    }
+    fragment.appendChild(group);
+  }
+  const known = ready.some((item) => weightMatches(item, current));
+  if (current && !known) {
+    const option = document.createElement("option");
+    option.value = current;
+    option.textContent = `${current} · sparad`;
+    fragment.appendChild(option);
+  }
+  select.replaceChildren(fragment);
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function fillWeights() {
+  document.querySelectorAll("select.weight-select, select.embedding-select, select.drafter-select").forEach(fillSelect);
+  document.querySelectorAll("select.mtp-select").forEach(fillMtpSelect);
+}
+
+function field(label, html) {
+  return `<label>${label}${html}</label>`;
+}
+
+function input(name, value, attrs = "") {
+  const shown = value == null ? "" : String(value);
+  return `<input name="${name}" value="${escapeAttr(shown)}" ${attrs}>`;
+}
+
+function escapeAttr(value) {
+  return value.replace(/[&"]/g, (char) => ({ "&": "&amp;", "\"": "&quot;" }[char]));
+}
+
+function customRepo(value) {
+  if (!value) return "";
+  return models.some((item) => weightMatches(item, value)) ? "" : value;
+}
+
+function kvModeOf(slot) {
+  const turboquant = slot.kv_cache_turboquant || "default";
+  if (turboquant === "v4" || turboquant === "k8v4" || turboquant === "off") return `tq-${turboquant}`;
+  return slot.kv_cache_dtype || "default";
+}
+
+function editor(slot) {
+  const lane = slot.lane || "auto";
+  const prefix = slot.prefix_cache || "default";
+  const kv = kvModeOf(slot);
+  const spec = slot.spec_decode || "default";
+  const depthAuto = slot.mtp_tokens_auto === true;
+  const engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  const kvOption = (value, label) => `<option value="${value}" ${kv === value ? "selected" : ""}>${label}</option>`;
+  return `<form>
+    ${field("Namn", input("name", slot.name, "required"))}
+    ${field("Port", input("port", slot.port, "required inputmode='numeric'"))}
+    ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"))}
+    <label>Motor<select name="engine">
+      <option value="rapid-mlx" ${engine === "rapid-mlx" ? "selected" : ""}>rapid-mlx</option>
+      <option value="tensorfold" ${engine === "tensorfold" ? "selected" : ""}>TensorFold Zig</option>
+    </select></label>
+    <label class="wide weights"><span class="field-name">Vikter</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
+    <label class="wide tensorfold-only">Egen vikt${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
+    <label class="wide tensorfold-only"><span class="field-name">Drafter</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}" title="Valfri drafter, till exempel en DFlash-vikt"></select></label>
+    <label class="wide tensorfold-only">Egen drafter${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
+    <label class="check tensorfold-only" title="Webbresearch och strukturerat resonemang"><input type="checkbox" name="cortheon" ${slot.cortheon ? "checked" : ""}>Cortheon</label>
+    <label class="check tensorfold-only" title="Sparar prompt-cachen. Ändrar inte vikterna."><input type="checkbox" name="learn" ${slot.learn ? "checked" : ""}>Learn</label>
+    <label class="check tensorfold-only" title="Skriver om 4-bitarsvikterna i checkpointen."><input type="checkbox" name="slide" ${slot.slide ? "checked" : ""}>Slide</label>
+    <label class="wide rapid-only"><span class="field-name">Embedding, valfritt</span><select class="embedding-select" name="embedding_model" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
+    <label class="rapid-only">Körfält<select name="lane">
+      <option value="auto" ${lane === "auto" ? "selected" : ""}>Automatiskt</option>
+      <option value="text" ${lane === "text" ? "selected" : ""}>Text (--text-only)</option>
+      <option value="vision" ${lane === "vision" ? "selected" : ""}>Vision (--mllm)</option>
+    </select></label>
+    <label class="rapid-only">Prefix-cache<select name="prefix_cache">
+      <option value="default" ${prefix === "default" ? "selected" : ""}>På</option>
+      <option value="off" ${prefix === "off" ? "selected" : ""}>Av</option>
+    </select></label>
+    <label class="rapid-only">KV-cache<select name="kv_mode">
+      ${kvOption("default", "standard")}
+      ${kvOption("bf16", "bf16")}
+      ${kvOption("int8", "int8")}
+      ${kvOption("int4", "int4")}
+      ${kvOption("tq-v4", "TurboQuant v4")}
+      ${kvOption("tq-k8v4", "TurboQuant k8v4")}
+      ${kvOption("tq-off", "TurboQuant av")}
+    </select></label>
+    <label class="rapid-only">Spekulativ avkodning<select name="spec_decode">
+      <option value="default" ${spec === "default" ? "selected" : ""}>Modellens standard</option>
+      <option value="off" ${spec === "off" ? "selected" : ""}>Av</option>
+      <option value="mtp" ${spec === "mtp" ? "selected" : ""}>MTP</option>
+    </select></label>
+    <label class="rapid-only">MTP-djup<select name="mtp_depth_mode">
+      <option value="auto" ${depthAuto ? "selected" : ""}>Katalogens djup</option>
+      <option value="manual" ${depthAuto ? "" : "selected"}>Eget djup</option>
+    </select></label>
+    <label class="rapid-only">MTP-token${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
+    <label class="wide rapid-only"><span class="field-name">MTP-utkast</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
+    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"))}
+    <label class="rapid-only">GPU-minne 0.01–1${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
+    <label class="rapid-only">Prefix-cache MB${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
+    <label class="rapid-only">Hybrid-cache poster${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
+    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"))}
+    <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}>Fäst systemprompt</label>
+    <label class="wide">Extra flaggor${input("extra_args", slot.extra_args, "placeholder='--log-level INFO'")}</label>
+    <p class="advice">${escapeText(slot.advice || "")}</p>
+  </form>`;
+}
+
+function readForm(form) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.pin_system_prompt = Boolean(form.elements.pin_system_prompt && form.elements.pin_system_prompt.checked);
+  data.cortheon = Boolean(form.elements.cortheon && form.elements.cortheon.checked);
+  data.learn = Boolean(form.elements.learn && form.elements.learn.checked);
+  data.slide = Boolean(form.elements.slide && form.elements.slide.checked);
+  data.engine = data.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  const modelCustom = (data.model_custom || "").trim();
+  const drafterCustom = (data.drafter_custom || "").trim();
+  delete data.model_custom;
+  delete data.drafter_custom;
+  if (data.engine === "tensorfold" && modelCustom) data.model = modelCustom;
+  if (data.engine === "tensorfold" && drafterCustom) data.drafter = drafterCustom;
+  data.mtp_tokens_auto = data.mtp_depth_mode === "auto";
+  delete data.mtp_depth_mode;
+  const kv = data.kv_mode || "default";
+  delete data.kv_mode;
+  if (kv.startsWith("tq-")) {
+    data.kv_cache_dtype = "default";
+    data.kv_cache_turboquant = kv.slice(3);
+  } else {
+    data.kv_cache_dtype = kv;
+    data.kv_cache_turboquant = "default";
+  }
+  for (const key of ["port", "mtp_tokens", "context_length", "cache_memory_mb", "hybrid_cache_entries", "max_tokens"]) {
+    if (!(key in data)) continue;
+    data[key] = data[key] === "" ? null : Number(data[key]);
+  }
+  if (data.mtp_tokens_auto) data.mtp_tokens = null;
+  if ("gpu_memory_utilization" in data) {
+    data.gpu_memory_utilization = data.gpu_memory_utilization === "" ? null : Number(data.gpu_memory_utilization);
+  }
+  return data;
+}
+
+function signature(slot) {
+  return [slot.status, slot.pid, slot.command, slot.live_command, slot.name, slot.port, slot.model, slot.api_name].join("\n");
+}
+
+function placeLine(slot) {
+  const api = slot.api_name || "samma som vikterna";
+  const engine = slot.engine === "tensorfold" ? "TensorFold" : "rapid-mlx";
+  return `port ${slot.port} · ${engine} · API ${api}`;
+}
+
+function card(slot) {
+  const article = document.createElement("article");
+  article.className = "card";
+  article.dataset.id = slot.id;
+  article.dataset.engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  article.innerHTML = `
+    <div class="head">
+      <div>
+        <h2>${escapeText(slot.name)}</h2>
+        <p class="meta"><span class="meta-place">${escapeText(placeLine(slot))}</span><span class="meta-model"> · ${escapeText(slot.model || "inga vikter")}</span></p>
+      </div>
+      <span class="status ${slot.status || "stopped"}"><span class="long">${STATUS[slot.status] || "Stoppad"}</span><span class="short">${SHORT_STATUS[slot.status] || "Stoppad"}</span></span>
+    </div>
+    <p class="live"></p>
+    ${editor(slot)}
+    <h3>Kommando vid nästa start</h3>
+    <pre class="preview"></pre>
+    <div class="actions row">
+      <button type="button" class="secondary" data-act="edit">Ändra</button>
+      <button type="button" data-act="save">Spara</button>
+      <button type="button" data-act="start">Starta</button>
+      <button type="button" class="secondary" data-act="restart">Starta om</button>
+      <button type="button" class="secondary" data-act="stop">Stoppa</button>
+      <button type="button" class="quiet" data-act="log">Logg</button>
+      <button type="button" class="danger" data-act="delete">Ta bort</button>
+    </div>
+    <pre class="log" hidden></pre>`;
+  article.querySelector(".preview").textContent = slot.command || "";
+  const live = article.querySelector(".live");
+  live.textContent = slot.live_command ? `Kör just nu: ${slot.live_command}` : "";
+  const meta = article.querySelector(".meta");
+  meta.title = meta.textContent;
+  article.dataset.sig = signature(slot);
+  article.querySelectorAll("select.weight-select, select.embedding-select, select.drafter-select").forEach(fillSelect);
+  article.querySelectorAll("select.mtp-select").forEach(fillMtpSelect);
+  const form = article.querySelector("form");
+  const markDirty = () => {
+    dirty.add(slot.id);
+    article.classList.add("dirty");
+  };
+  form.addEventListener("input", () => {
+    markDirty();
+    schedulePreview(article);
+  });
+  form.addEventListener("change", (event) => {
+    markDirty();
+    if (event.target && event.target.name === "engine") {
+      article.dataset.engine = event.target.value === "tensorfold" ? "tensorfold" : "rapid-mlx";
+    }
+    if (event.target && event.target.name === "model") {
+      if (form.elements.model_custom) form.elements.model_custom.value = "";
+      const mtp = form.elements.mtp_model;
+      if (mtp) fillMtpSelect(mtp);
+    }
+    if (event.target && event.target.name === "drafter" && form.elements.drafter_custom) {
+      form.elements.drafter_custom.value = "";
+    }
+    if (event.target && event.target.name === "mtp_depth_mode") {
+      form.elements.mtp_tokens.disabled = event.target.value === "auto";
+    }
+    schedulePreview(article);
+  });
+  form.addEventListener("focusin", () => dirty.add(slot.id));
+  article.addEventListener("click", (event) => onAction(event, slot.id));
+  paintButtons(article, slot);
+  return article;
+}
+
+function escapeText(value) {
+  return String(value).replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]));
+}
+
+function paintButtons(article, slot) {
+  const status = slot.status || "stopped";
+  article.querySelector('[data-act="start"]').disabled = status === "running" || status === "external";
+  article.querySelector('[data-act="stop"]').disabled = status === "stopped";
+  article.querySelector('[data-act="restart"]').disabled = status === "stopped";
+}
+
+function updateLive(article, slot) {
+  const status = article.querySelector(".status");
+  status.className = `status ${slot.status || "stopped"}`;
+  status.querySelector(".long").textContent = STATUS[slot.status] || "Stoppad";
+  status.querySelector(".short").textContent = SHORT_STATUS[slot.status] || "Stoppad";
+  article.querySelector(".live").textContent = slot.live_command ? `Kör just nu: ${slot.live_command}` : "";
+  if (!dirty.has(slot.id)) {
+    article.querySelector(".preview").textContent = slot.command || "";
+    const advice = article.querySelector(".advice");
+    if (advice) advice.textContent = slot.advice || "";
+  }
+  const place = article.querySelector(".meta-place");
+  const modelName = article.querySelector(".meta-model");
+  if (place) place.textContent = placeLine(slot);
+  if (modelName) modelName.textContent = ` · ${slot.model || "inga vikter"}`;
+  const meta = article.querySelector(".meta");
+  meta.title = `${placeLine(slot)} · ${slot.model || "inga vikter"}`;
+  if (!dirty.has(slot.id)) article.dataset.engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  article.querySelector("h2").textContent = slot.name;
+  paintButtons(article, slot);
+}
+
+function render(next) {
+  slots = next;
+  const root = document.querySelector("#slots");
+  const seen = new Set();
+  for (const slot of slots) {
+    seen.add(slot.id);
+    let article = root.querySelector(`[data-id="${slot.id}"]`);
+    if (!article) {
+      root.appendChild(card(slot));
+      continue;
+    }
+    if (article.dataset.sig === signature(slot)) {
+      if (!dirty.has(slot.id)) {
+        const advice = article.querySelector(".advice");
+        if (advice && slot.advice) advice.textContent = slot.advice;
+      }
+      continue;
+    }
+    if (dirty.has(slot.id)) updateLive(article, slot);
+    else {
+      const wasOpen = article.classList.contains("open");
+      const replacement = card(slot);
+      if (wasOpen) {
+        replacement.classList.add("open");
+        replacement.querySelector('[data-act="edit"]').textContent = "Stäng";
+      }
+      article.replaceWith(replacement);
+    }
+  }
+  for (const article of root.querySelectorAll("[data-id]")) {
+    if (!seen.has(article.dataset.id)) article.remove();
+  }
+}
+
+function renderUnassigned(items) {
+  const root = document.querySelector("#unassigned");
+  root.innerHTML = "";
+  root.className = items.length ? "" : "hint";
+  if (!items.length) {
+    root.textContent = "Inga.";
+    return;
+  }
+  for (const proc of items) {
+    const row = document.createElement("div");
+    row.className = "card";
+    const title = document.createElement("p");
+    title.textContent = `pid ${proc.pid} · port ${proc.port ?? "okänd"} · ${proc.uptime || ""}`;
+    const command = document.createElement("p");
+    command.className = "live";
+    command.textContent = proc.command || "";
+    const button = document.createElement("button");
+    button.className = "danger";
+    button.type = "button";
+    button.textContent = "Stoppa processen";
+    button.addEventListener("click", async () => {
+      if (!confirm(`Stoppa pid ${proc.pid}?`)) return;
+      try {
+        await api(`/api/processes/${proc.pid}/stop`, { method: "POST" });
+        await refresh();
+      } catch (error) {
+        showError(error);
+      }
+    });
+    row.append(title, command, button);
+    root.appendChild(row);
+  }
+}
+
+async function refresh() {
+  const state = await api("/api/state");
+  document.querySelector("#state-path").textContent = state.state_dir;
+  render(state.slots);
+  renderUnassigned(state.unassigned || []);
+}
+
+const previewTimers = new WeakMap();
+
+function schedulePreview(article) {
+  const pending = previewTimers.get(article);
+  if (pending) clearTimeout(pending);
+  previewTimers.set(article, setTimeout(async () => {
+    const form = article.querySelector("form");
+    if (!form) return;
+    try {
+      const payload = await api("/api/preview", { method: "POST", body: JSON.stringify(readForm(form)) });
+      const preview = article.querySelector(".preview");
+      const advice = article.querySelector(".advice");
+      if (preview) preview.textContent = payload.command || "";
+      if (advice) advice.textContent = payload.advice || "";
+    } catch (error) {
+      const advice = article.querySelector(".advice");
+      if (advice) advice.textContent = error.message || "";
+    }
+  }, 200));
+}
+
+async function refreshModels() {
+  const payload = await api("/api/models");
+  models = payload.cached || [];
+  profiles = payload.profiles || {};
+  fillWeights();
+}
+
+function blankSlot() {
+  return {
+    name: "",
+    port: "",
+    api_name: "",
+    model: "",
+    engine: "rapid-mlx",
+    drafter: "",
+    cortheon: false,
+    learn: false,
+    slide: false,
+    embedding_model: "",
+    lane: "auto",
+    prefix_cache: "default",
+    kv_cache_dtype: "default",
+    kv_cache_turboquant: "default",
+    spec_decode: "default",
+    mtp_tokens: "",
+    mtp_tokens_auto: true,
+    mtp_model: "",
+    context_length: "",
+    gpu_memory_utilization: "",
+    cache_memory_mb: "",
+    hybrid_cache_entries: "",
+    max_tokens: "",
+    pin_system_prompt: false,
+    extra_args: "",
+    status: "stopped",
+    command: "Fyll i vikter och spara.",
+  };
+}
+
+function showDraft() {
+  const root = document.querySelector("#draft");
+  root.innerHTML = "";
+  const article = card({ ...blankSlot(), id: "ny", name: "Ny plats" });
+  article.querySelector('[data-act="start"]').hidden = true;
+  article.querySelector('[data-act="stop"]').hidden = true;
+  article.querySelector('[data-act="restart"]').hidden = true;
+  article.querySelector('[data-act="log"]').hidden = true;
+  article.classList.add("open");
+  article.querySelector('[data-act="edit"]').remove();
+  article.querySelector('[data-act="delete"]').textContent = "Avbryt";
+  article.querySelector("form").addEventListener("submit", (event) => event.preventDefault());
+  article.addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    event.stopPropagation();
+    if (button.dataset.act === "delete") {
+      root.innerHTML = "";
+      return;
+    }
+    if (button.dataset.act !== "save") return;
+    try {
+      await api("/api/slots", { method: "POST", body: JSON.stringify(readForm(article.querySelector("form"))) });
+      root.innerHTML = "";
+      showError(null);
+      await refresh();
+    } catch (error) {
+      showError(error);
+    }
+  }, true);
+  root.appendChild(article);
+}
+
+async function onAction(event, id) {
+  if (id === "ny") return;
+  const button = event.target.closest("button");
+  if (!button || !button.dataset.act) return;
+  const article = event.currentTarget;
+  if (button.dataset.act === "edit") {
+    const open = article.classList.toggle("open");
+    button.textContent = open ? "Stäng" : "Ändra";
+    return;
+  }
+  const slot = slots.find((item) => item.id === id);
+  if (button.dataset.act === "restart" && !confirm("Stoppa processen på den här porten och starta den med de sparade inställningarna?")) return;
+  if (button.dataset.act === "stop" && slot && slot.status === "external" && !confirm(`Stoppa processen på port ${slot.port}? Den startades utanför panelen.`)) return;
+  if (button.dataset.act === "delete" && !confirm("Ta bort platsen? Den körande processen måste stoppas först.")) return;
+  try {
+    if (button.dataset.act === "save" || button.dataset.act === "start" || button.dataset.act === "restart") {
+      await api(`/api/slots/${id}`, { method: "PUT", body: JSON.stringify(readForm(article.querySelector("form"))) });
+      dirty.delete(id);
+    }
+    if (button.dataset.act === "start") {
+      await api(`/api/slots/${id}/start`, { method: "POST" });
+    }
+    if (button.dataset.act === "stop") {
+      await api(`/api/slots/${id}/stop`, { method: "POST" });
+    }
+    if (button.dataset.act === "restart") {
+      await api(`/api/slots/${id}/restart`, { method: "POST" });
+    }
+    if (button.dataset.act === "delete") {
+      await api(`/api/slots/${id}`, { method: "DELETE" });
+      dirty.delete(id);
+    }
+    if (button.dataset.act === "log") {
+      const payload = await api(`/api/slots/${id}/log`);
+      const log = article.querySelector(".log");
+      log.hidden = false;
+      log.textContent = payload.log || "Ingen logg ännu.";
+      return;
+    }
+    showError(null);
+    await refresh();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function applyView(mode) {
+  const simplified = mode === "simplified";
+  document.body.classList.toggle("simplified", simplified);
+  const button = document.querySelector("#view-toggle");
+  button.textContent = simplified ? "Full vy" : "Förenklad vy";
+  button.setAttribute("aria-pressed", simplified ? "true" : "false");
+  localStorage.setItem(VIEW_KEY, simplified ? "simplified" : "full");
+}
+
+applyView(localStorage.getItem(VIEW_KEY) === "simplified" ? "simplified" : "full");
+document.querySelector("#view-toggle").addEventListener("click", () => {
+  applyView(document.body.classList.contains("simplified") ? "full" : "simplified");
+});
+document.querySelector("#new-slot").addEventListener("click", showDraft);
+document.querySelector("#reload-models").addEventListener("click", () => refreshModels().catch(showError));
+refresh().catch(showError);
+refreshModels().catch(showError);
+setInterval(() => refresh().catch(showError), 4000);
+</script>
+</body>
+</html>
