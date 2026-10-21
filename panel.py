@@ -88,6 +88,7 @@ RESERVED_EXTRA = {
     "--slide",
     "--name",
     "--context",
+    "--listen",
 }
 
 LOCK = threading.Lock()
@@ -99,7 +100,7 @@ PREFIX_MODES = {"default", "off"}
 KV_DTYPES = {"default", "bf16", "int8", "int4"}
 KV_TURBOQUANT = {"default", "off", "v4", "k8v4"}
 SPEC_MODES = {"default", "off", "mtp"}
-ENGINES = {"rapid-mlx", "tensorfold"}
+ENGINES = {"rapid-mlx", "tensorfold", "comfyui"}
 
 _CATALOG_SCRIPT = r"""
 import json
@@ -190,6 +191,20 @@ def _as_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().casefold() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def comfyui_root() -> str:
+    override = os.environ.get("COMFYUI_ROOT", "").strip()
+    if override:
+        return override
+    return "/Users/otto/ComfyUI/models/ComfyUI/ComfyUI"
+
+
+def comfyui_python() -> str:
+    override = os.environ.get("COMFYUI_PYTHON", "").strip()
+    if override:
+        return override
+    return "/Users/otto/ComfyUI/models/ComfyUI/ComfyUI/.venv/bin/python"
 
 
 def tensorfold_bin() -> str:
@@ -397,7 +412,7 @@ def _validate_slot(slot: dict[str, Any]) -> dict[str, Any]:
         raise PanelError("API-namnet får inte innehålla mellanslag")
     engine = str(slot.get("engine") or "rapid-mlx").strip()
     if engine not in ENGINES:
-        raise PanelError("motorn måste vara rapid-mlx eller tensorfold")
+        raise PanelError("motorn måste vara rapid-mlx, tensorfold eller comfyui")
     model = str(slot.get("model") or "").strip()
     if any(ord(char) < 32 for char in model):
         raise PanelError("vikterna får inte innehålla styrtecken")
@@ -579,7 +594,25 @@ def _tensorfold_argv(slot: dict[str, Any]) -> list[str]:
     return argv
 
 
+def _comfyui_argv(slot: dict[str, Any]) -> list[str]:
+    """ComfyUI diffusion server. Workflows choose the weights after start."""
+    root = comfyui_root()
+    argv = [
+        comfyui_python(),
+        str(Path(root) / "main.py"),
+        "--listen",
+        HOST,
+        "--port",
+        str(slot["port"]),
+    ]
+    if slot.get("extra_args"):
+        argv.extend(shlex.split(slot["extra_args"]))
+    return argv
+
+
 def build_argv(slot: dict[str, Any]) -> list[str]:
+    if slot.get("engine") == "comfyui":
+        return _comfyui_argv(slot)
     if not slot.get("model"):
         raise PanelError("välj vikter innan platsen startas")
     if slot.get("engine") == "tensorfold":
@@ -654,6 +687,27 @@ def parse_serve_command(command: str) -> dict[str, Any] | None:
     tokens = command.split()
     if not tokens or os.path.basename(tokens[0]) == "caffeinate":
         return None
+    for index, token in enumerate(tokens):
+        if os.path.basename(token) == "main.py" and "ComfyUI" in token:
+            port = None
+            cursor = index + 1
+            while cursor < len(tokens):
+                token = tokens[cursor]
+                key, _, inline = token.partition("=")
+                if key == "--port" and inline.isdigit():
+                    port = int(inline)
+                    break
+                if key == "--port" and cursor + 1 < len(tokens) and tokens[cursor + 1].isdigit():
+                    port = int(tokens[cursor + 1])
+                    break
+                cursor += 1
+            return {
+                "model": "ComfyUI",
+                "port": port,
+                "served_name": None,
+                "engine": "comfyui",
+                "command": command,
+            }
     serve_at = None
     engine = None
     for index, token in enumerate(tokens):
@@ -812,8 +866,19 @@ def _tensorfold_advice(slot: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _comfyui_advice(slot: dict[str, Any]) -> str:
+    return (
+        "ComfyUI är diffusionsservern för bilder. Vikterna väljs i arbetsflödet "
+        "när en bild genereras, inte när processen startar. "
+        f"Nästa start lyssnar på {HOST}:{slot.get('port')}. "
+        "Bildbryggan på port 8190 är en egen process och startas inte här."
+    )
+
+
 def describe_slot(slot: dict[str, Any], profile: dict[str, Any] | None) -> str:
     """One or two sentences about what the saved choices do for this weight."""
+    if slot.get("engine") == "comfyui":
+        return _comfyui_advice(slot)
     if slot.get("engine") == "tensorfold":
         return _tensorfold_advice(slot)
     lane = str(slot.get("lane") or "auto")
@@ -1018,6 +1083,12 @@ def start_slot(slot_id: str) -> dict[str, Any]:
         binary = argv[0]
         if not os.path.exists(binary):
             raise PanelError(f"hittar inte motorn: {binary}")
+        cwd = str(Path.home())
+        if slot.get("engine") == "comfyui":
+            root = Path(comfyui_root())
+            if not (root / "main.py").is_file():
+                raise PanelError(f"hittar inte ComfyUI: {root}")
+            cwd = str(root)
         _append_log(slot_id, f"\n--- start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         _append_log(slot_id, command_preview(slot) + "\n")
         log_handle = log_path_for(slot_id).open("a", encoding="utf-8")
@@ -1030,7 +1101,7 @@ def start_slot(slot_id: str) -> dict[str, Any]:
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
-                    cwd=str(Path.home()),
+                    cwd=cwd,
                     env=env,
                 )
             except OSError as exc:

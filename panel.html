@@ -119,8 +119,13 @@
     font: inherit;
   }
   .check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
-  article[data-engine="tensorfold"] .rapid-only { display: none; }
-  article[data-engine="rapid-mlx"] .tensorfold-only { display: none; }
+  article[data-engine="tensorfold"] .rapid-only,
+  article[data-engine="comfyui"] .rapid-only,
+  article[data-engine="comfyui"] .llm-only { display: none; }
+  article[data-engine="rapid-mlx"] .tensorfold-only,
+  article[data-engine="comfyui"] .tensorfold-only { display: none; }
+  article[data-engine="rapid-mlx"] .comfy-only,
+  article[data-engine="tensorfold"] .comfy-only { display: none; }
   .advice { margin: 0; grid-column: 1 / -1; font-size: 13px; }
   .actions { margin-top: 12px; }
   h3 { font-size: 13px; font-weight: 650; margin: 18px 0 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
@@ -403,9 +408,20 @@ function tip(text) {
   return `<span class="hint-mark" tabindex="0" title="${escapeAttr(text)}" aria-label="${escapeAttr(text)}">?</span>`;
 }
 
-function field(label, html, help) {
+function field(label, html, help, klass = "") {
   const name = help ? `<span class="field-name">${label}${tip(help)}</span>` : label;
-  return `<label>${name}${html}</label>`;
+  return `<label class="${klass}">${name}${html}</label>`;
+}
+
+function engineId(value) {
+  if (value === "tensorfold" || value === "comfyui") return value;
+  return "rapid-mlx";
+}
+
+function engineLabel(value) {
+  if (value === "tensorfold") return "TensorFold";
+  if (value === "comfyui") return "ComfyUI";
+  return "rapid-mlx";
 }
 
 function input(name, value, attrs = "") {
@@ -434,17 +450,19 @@ function editor(slot) {
   const kv = kvModeOf(slot);
   const spec = slot.spec_decode || "default";
   const depthAuto = slot.mtp_tokens_auto === true;
-  const engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  const engine = engineId(slot.engine);
   const kvOption = (value, label) => `<option value="${value}" ${kv === value ? "selected" : ""}>${label}</option>`;
   return `<form>
     ${field("Namn", input("name", slot.name, "required"), "Namnet på platsen i panelen. Klienter ser det inte.")}
     ${field("Port", input("port", slot.port, "required inputmode='numeric'"), "Porten servern lyssnar på, bara på 127.0.0.1. Byt port kräver omstart.")}
-    ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"), "Modellnamnet klienten skickar i anropet. Tomt betyder vikternas eget namn. rapid-mlx skickar --served-model-name när det skiljer sig. Zig skickar alltid --name när fältet är ifyllt.")}
-    <label><span class="field-name">Motor${tip("rapid-mlx är Python-motorn med KV-cache, MTP och prefix-cache. TensorFold Zig är den fristående binären, med drafter, Cortheon, learn och slide.")}</span><select name="engine">
+    ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"), "Modellnamnet klienten skickar i anropet. Tomt betyder vikternas eget namn. rapid-mlx skickar --served-model-name när det skiljer sig. Zig skickar alltid --name när fältet är ifyllt.", "llm-only")}
+    <label><span class="field-name">Motor${tip("rapid-mlx är Python-motorn med KV-cache, MTP och prefix-cache. TensorFold Zig är den fristående binären, med drafter, Cortheon, learn och slide. ComfyUI är diffusionsservern för bilder. Den laddar inga vikter vid start. Arbetsflödet väljer dem.")}</span><select name="engine">
       <option value="rapid-mlx" ${engine === "rapid-mlx" ? "selected" : ""}>rapid-mlx</option>
       <option value="tensorfold" ${engine === "tensorfold" ? "selected" : ""}>TensorFold Zig</option>
+      <option value="comfyui" ${engine === "comfyui" ? "selected" : ""}>ComfyUI</option>
     </select></label>
-    <label class="wide weights"><span class="field-name">Vikter${tip("Checkpointen som laddas. Listan är cachade modeller. En lokal sökväg som inte finns i listan skrivs i Egen vikt när motorn är Zig. Peka på 4-bit-mappen, inte på ett repo som innehåller flera kvantiseringar.")}</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
+    <p class="advice comfy-only">Diffusionsserver. Vikterna väljs i arbetsflödet. Start, stopp och omstart gäller processen på den här porten.</p>
+    <label class="wide weights llm-only"><span class="field-name">Vikter${tip("Checkpointen som laddas. Listan är cachade modeller. En lokal sökväg som inte finns i listan skrivs i Egen vikt när motorn är Zig. Peka på 4-bit-mappen, inte på ett repo som innehåller flera kvantiseringar.")}</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
     <label class="wide tensorfold-only"><span class="field-name">Egen vikt${tip("Repo eller mapp som inte finns i listan, till exempel en lokal 4-bit-katalog. Fylls fältet i vinner det över listan.")}</span>${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
     <label class="wide tensorfold-only"><span class="field-name">Drafter${tip("Mindre modell som föreslår flera token åt gången, till exempel z-lab/Qwen3.8-27B-DFlash2. Tomt val betyder ingen drafter. Utkastet måste matcha målmodellens bredd och lager. MTP-sidovagnen är inte en DFlash-drafter.")}</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}"></select></label>
     <label class="wide tensorfold-only"><span class="field-name">Egen drafter${tip("Repo eller sökväg till en drafter som inte finns i listan. Fylls fältet i vinner det över listan.")}</span>${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
@@ -481,11 +499,11 @@ function editor(slot) {
     </select></label>
     <label class="rapid-only"><span class="field-name">MTP-token${tip("Antal token som gissas per steg när MTP-djup är Eget djup. Fältet är avstängt när katalogens djup används.")}</span>${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
     <label class="wide rapid-only"><span class="field-name">MTP-utkast${tip("Sidomodellens vikter för MTP. Tomt betyder aliasets eget utkast, ofta en mtp-mapp bredvid huvudvikterna. Välj en vikt bara när aliaset saknar utkast eller du vill peka på ett annat.")}</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
-    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar, upp till modellens egen gräns. Tomt låter motorn uppskatta från minnet. Ett eget tal gäller ändå tillsammans med GPU-taket. Gäller båda motorerna.")}
+    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar, upp till modellens egen gräns. Tomt låter motorn uppskatta från minnet. Ett eget tal gäller ändå tillsammans med GPU-taket. Gäller rapid-mlx och Zig.", "llm-only")}
     <label class="rapid-only"><span class="field-name">GPU-minne 0.01–1${tip("Andel av enhetens Metallminne som servern får ta, 0.01 till 1. Tomt är automatiskt: budgeten mäts efter laddade vikter och landar mellan cirka 0,90 och 0,97. 1 är taket. Värdet gäller först efter omstart.")}</span>${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Prefix-cache MB${tip("Tak i megabyte för prefix-cachen. Tomt betyder automatiskt, ungefär 20 procent av RAM. Lägre tak kastar gamla promptbörjor tidigare.")}</span>${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Hybrid-cache poster${tip("Hur många återkommande tillstånd som sparas för omstart av samma prompt, på modeller som Mamba eller GatedDeltaNet. Tomt eller 0 stänger av det. Vanliga transformermodeller använder inte posterna.")}</span>${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
-    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. Gäller båda motorerna.")}
+    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. Gäller rapid-mlx och Zig.", "llm-only")}
     <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}><span>Fäst systemprompt</span>${tip("Håller systempromptens block kvar i prefix-cachen så det inte kastas när minnet tar slut. Nästa anrop med samma systemprompt slipper räkna om den delen. Kräver att prefix-cachen är på. Prompten i sig ändras inte, och vikterna skrivs inte om.")}</label>
     <label class="wide"><span class="field-name">Extra flaggor${tip("Råa argument som läggs sist på kommandoraden, till exempel --log-level INFO. Flaggan får inte upprepa ett fält som redan har en egen ruta, som --port, --drafter eller --context.")}</span>${input("extra_args", slot.extra_args, "placeholder='--log-level INFO'")}</label>
     <p class="advice">${escapeText(slot.advice || "")}</p>
@@ -498,7 +516,7 @@ function readForm(form) {
   data.cortheon = Boolean(form.elements.cortheon && form.elements.cortheon.checked);
   data.learn = Boolean(form.elements.learn && form.elements.learn.checked);
   data.slide = Boolean(form.elements.slide && form.elements.slide.checked);
-  data.engine = data.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  data.engine = engineId(data.engine);
   const modelCustom = (data.model_custom || "").trim();
   const drafterCustom = (data.drafter_custom || "").trim();
   delete data.model_custom;
@@ -533,7 +551,8 @@ function signature(slot) {
 
 function placeLine(slot) {
   const api = slot.api_name || "samma som vikterna";
-  const engine = slot.engine === "tensorfold" ? "TensorFold" : "rapid-mlx";
+  const engine = engineLabel(slot.engine);
+  if (slot.engine === "comfyui") return `port ${slot.port} · ${engine} · diffusion`;
   return `port ${slot.port} · ${engine} · API ${api}`;
 }
 
@@ -541,7 +560,7 @@ function card(slot) {
   const article = document.createElement("article");
   article.className = "card";
   article.dataset.id = slot.id;
-  article.dataset.engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  article.dataset.engine = engineId(slot.engine);
   article.innerHTML = `
     <div class="head">
       <div>
@@ -589,7 +608,7 @@ function card(slot) {
   form.addEventListener("change", (event) => {
     markDirty();
     if (event.target && event.target.name === "engine") {
-      article.dataset.engine = event.target.value === "tensorfold" ? "tensorfold" : "rapid-mlx";
+      article.dataset.engine = engineId(event.target.value);
     }
     if (event.target && event.target.name === "model") {
       if (form.elements.model_custom) form.elements.model_custom.value = "";
@@ -639,7 +658,7 @@ function updateLive(article, slot) {
   if (modelName) modelName.textContent = ` · ${slot.model || "inga vikter"}`;
   const meta = article.querySelector(".meta");
   meta.title = `${placeLine(slot)} · ${slot.model || "inga vikter"}`;
-  if (!dirty.has(slot.id)) article.dataset.engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
+  if (!dirty.has(slot.id)) article.dataset.engine = engineId(slot.engine);
   article.querySelector("h2").textContent = slot.name;
   paintButtons(article, slot);
 }

@@ -147,6 +147,20 @@ class SlotStoreTest(unittest.TestCase):
         self.assertEqual(parsed["port"], 8080)
         self.assertEqual(parsed["model"], "TensorFold/Qwen3.8-27B-MLX-4bit")
         self.assertEqual(parsed["served_name"], "qwen38-27b")
+        comfy = (
+            "/Users/otto/ComfyUI/models/ComfyUI/ComfyUI/.venv/bin/python "
+            "/Users/otto/ComfyUI/models/ComfyUI/ComfyUI/main.py --port 8192"
+        )
+        parsed = panel.parse_serve_command(comfy)
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed["engine"], "comfyui")
+        self.assertEqual(parsed["port"], 8192)
+        tracker = (
+            "/Users/otto/ComfyUI/models/ComfyUI/ComfyUI/.venv/bin/python -c "
+            "from multiprocessing.resource_tracker import main;main(17)"
+        )
+        self.assertIsNone(panel.parse_serve_command(tracker))
 
     def test_tensorfold_engine_keeps_its_flags_off_the_rapid_command(self) -> None:
         slot = panel._normalize_slot(
@@ -187,6 +201,16 @@ class SlotStoreTest(unittest.TestCase):
         )
         self.assertEqual(kept["engine"], "rapid-mlx")
         self.assertFalse(kept["slide"])
+        comfy = panel._normalize_slot(
+            {"id": "comfy", "name": "comfy", "port": 18192, "engine": "comfyui", "model": ""}
+        )
+        argv = panel.build_argv(comfy)
+        self.assertEqual(argv[0], panel.comfyui_python())
+        self.assertTrue(argv[1].endswith("/main.py"))
+        self.assertEqual(argv[argv.index("--listen") + 1], "127.0.0.1")
+        self.assertEqual(argv[argv.index("--port") + 1], "18192")
+        self.assertNotIn("serve", argv)
+        self.assertIn("diffusionsservern", panel.describe_slot(comfy, None))
 
     def test_turboquant_and_catalog_mtp_are_explicit_in_the_command(self) -> None:
         turbo = panel._normalize_slot(
