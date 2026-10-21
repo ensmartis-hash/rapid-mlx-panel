@@ -79,9 +79,36 @@
     font-size: 12px;
     color: var(--muted);
   }
+  pre.log { max-height: 16rem; overflow: auto; }
+  .log-tools { margin-top: 10px; }
+  pre.log .lg-err { color: var(--danger); font-weight: 650; }
+  pre.log .lg-warn { color: var(--warn); }
+  pre.log .lg-info { color: var(--ok); }
+  pre.log .lg-debug { color: #8d8a80; }
+  pre.log .lg-http { color: #8eb7e8; }
+  pre.log .lg-kw { color: #d7b4f0; }
+  pre.log .lg-num { color: var(--accent); }
+  pre.log .lg-str { color: #c8e6a0; }
+  pre.log .lg-path { color: #e6c37a; }
+  pre.log .lg-time { color: #8f9aaf; }
   form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; margin-top: 14px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   label.wide { grid-column: 1 / -1; }
+  .field-name { display: inline-flex; align-items: center; gap: 6px; }
+  .hint-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+    flex: 0 0 auto;
+  }
   input, select {
     background: var(--input);
     color: var(--text);
@@ -137,6 +164,7 @@
   body.simplified #slots > .card:not(.open) .advice,
   body.simplified #slots > .card:not(.open) .live,
   body.simplified #slots > .card:not(.open) .log,
+  body.simplified #slots > .card:not(.open) .log-wrap,
   body.simplified #slots > .card:not(.open) [data-act="save"],
   body.simplified #slots > .card:not(.open) [data-act="log"],
   body.simplified #slots > .card:not(.open) [data-act="delete"] { display: none; }
@@ -371,8 +399,13 @@ function fillWeights() {
   document.querySelectorAll("select.mtp-select").forEach(fillMtpSelect);
 }
 
-function field(label, html) {
-  return `<label>${label}${html}</label>`;
+function tip(text) {
+  return `<span class="hint-mark" tabindex="0" title="${escapeAttr(text)}" aria-label="${escapeAttr(text)}">?</span>`;
+}
+
+function field(label, html, help) {
+  const name = help ? `<span class="field-name">${label}${tip(help)}</span>` : label;
+  return `<label>${name}${html}</label>`;
 }
 
 function input(name, value, attrs = "") {
@@ -404,31 +437,31 @@ function editor(slot) {
   const engine = slot.engine === "tensorfold" ? "tensorfold" : "rapid-mlx";
   const kvOption = (value, label) => `<option value="${value}" ${kv === value ? "selected" : ""}>${label}</option>`;
   return `<form>
-    ${field("Namn", input("name", slot.name, "required"))}
-    ${field("Port", input("port", slot.port, "required inputmode='numeric'"))}
-    ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"))}
-    <label>Motor<select name="engine">
+    ${field("Namn", input("name", slot.name, "required"), "Namnet på platsen i panelen. Klienter ser det inte.")}
+    ${field("Port", input("port", slot.port, "required inputmode='numeric'"), "Porten servern lyssnar på, bara på 127.0.0.1. Byt port kräver omstart.")}
+    ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"), "Modellnamnet klienten skickar i anropet. Tomt betyder vikternas eget namn. rapid-mlx skickar --served-model-name när det skiljer sig. Zig skickar alltid --name när fältet är ifyllt.")}
+    <label><span class="field-name">Motor${tip("rapid-mlx är Python-motorn med KV-cache, MTP och prefix-cache. TensorFold Zig är den fristående binären, med drafter, Cortheon, learn och slide.")}</span><select name="engine">
       <option value="rapid-mlx" ${engine === "rapid-mlx" ? "selected" : ""}>rapid-mlx</option>
       <option value="tensorfold" ${engine === "tensorfold" ? "selected" : ""}>TensorFold Zig</option>
     </select></label>
-    <label class="wide weights"><span class="field-name">Vikter</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
-    <label class="wide tensorfold-only">Egen vikt${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
-    <label class="wide tensorfold-only"><span class="field-name">Drafter</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}" title="Valfri drafter, till exempel en DFlash-vikt"></select></label>
-    <label class="wide tensorfold-only">Egen drafter${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
-    <label class="check tensorfold-only" title="Webbresearch och strukturerat resonemang"><input type="checkbox" name="cortheon" ${slot.cortheon ? "checked" : ""}>Cortheon</label>
-    <label class="check tensorfold-only" title="Sparar prompt-cachen. Ändrar inte vikterna."><input type="checkbox" name="learn" ${slot.learn ? "checked" : ""}>Learn</label>
-    <label class="check tensorfold-only" title="Skriver om 4-bitarsvikterna i checkpointen."><input type="checkbox" name="slide" ${slot.slide ? "checked" : ""}>Slide</label>
-    <label class="wide rapid-only"><span class="field-name">Embedding, valfritt</span><select class="embedding-select" name="embedding_model" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
-    <label class="rapid-only">Körfält<select name="lane">
+    <label class="wide weights"><span class="field-name">Vikter${tip("Checkpointen som laddas. Listan är cachade modeller. En lokal sökväg som inte finns i listan skrivs i Egen vikt när motorn är Zig. Peka på 4-bit-mappen, inte på ett repo som innehåller flera kvantiseringar.")}</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
+    <label class="wide tensorfold-only"><span class="field-name">Egen vikt${tip("Repo eller mapp som inte finns i listan, till exempel en lokal 4-bit-katalog. Fylls fältet i vinner det över listan.")}</span>${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
+    <label class="wide tensorfold-only"><span class="field-name">Drafter${tip("Mindre modell som föreslår flera token åt gången, till exempel z-lab/Qwen3.8-27B-DFlash2. Tomt val betyder ingen drafter. Utkastet måste matcha målmodellens bredd och lager. MTP-sidovagnen är inte en DFlash-drafter.")}</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}"></select></label>
+    <label class="wide tensorfold-only"><span class="field-name">Egen drafter${tip("Repo eller sökväg till en drafter som inte finns i listan. Fylls fältet i vinner det över listan.")}</span>${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="cortheon" ${slot.cortheon ? "checked" : ""}><span>Cortheon</span>${tip("Slår på Cortheon: webbresearch och strukturerat resonemang. Det uppdaterar inte vikterna.")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="learn" ${slot.learn ? "checked" : ""}><span>Learn</span>${tip("Sparar en inlärd prompt-cache så återkommande promptytor kan hoppas över. Skriver inte om checkpointen.")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="slide" ${slot.slide ? "checked" : ""}><span>Slide</span>${tip("Skriver lärdom in i modellens egna 4-bitarsvikter, i grupper om 64. Checkpointen på disk ändras. Panelen har ingen ångra-knapp.")}</label>
+    <label class="wide rapid-only"><span class="field-name">Embedding, valfritt${tip("En extra embedding-modell på samma server, via --embedding-model. Tomt betyder ingen. Används av klienter som ber om embeddings, inte av själva chatten.")}</span><select class="embedding-select" name="embedding_model" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
+    <label class="rapid-only"><span class="field-name">Körfält${tip("Automatiskt låter rapid-mlx välja text eller vision från modellnamnet. Text tvingar --text-only även om config.json säger vision. Vision tvingar --mllm, stänger av aliasets automatiska MTP och kräver ett fungerande vision-torn.")}</span><select name="lane">
       <option value="auto" ${lane === "auto" ? "selected" : ""}>Automatiskt</option>
       <option value="text" ${lane === "text" ? "selected" : ""}>Text (--text-only)</option>
       <option value="vision" ${lane === "vision" ? "selected" : ""}>Vision (--mllm)</option>
     </select></label>
-    <label class="rapid-only">Prefix-cache<select name="prefix_cache">
+    <label class="rapid-only"><span class="field-name">Prefix-cache${tip("På återanvänder beräkningen för en gemensam promptbörjan, till exempel samma systemprompt. Det är standard och skickar ingen flagga. Av skickar --disable-prefix-cache, så varje anrop räknas från början.")}</span><select name="prefix_cache">
       <option value="default" ${prefix === "default" ? "selected" : ""}>På</option>
       <option value="off" ${prefix === "off" ? "selected" : ""}>Av</option>
     </select></label>
-    <label class="rapid-only">KV-cache<select name="kv_mode">
+    <label class="rapid-only"><span class="field-name">KV-cache${tip("Hur nyckel- och värdecachen lagras under generation. Standard följer aliaset, oftast bf16 när MTP är igång. bf16 är full precision. int8 och int4 tar hälften respektive en fjärdedel av minnet men blir långsammare vid lång kontext, och avvisas på sliding-window och MLA. TurboQuant v4 komprimerar bara V. k8v4 komprimerar K till 8 bit och V till 4 bit. TurboQuant av stänger ett alias som annars skulle slå på det. TurboQuant kan inte kombineras med int8 eller int4.")}</span><select name="kv_mode">
       ${kvOption("default", "standard")}
       ${kvOption("bf16", "bf16")}
       ${kvOption("int8", "int8")}
@@ -437,24 +470,24 @@ function editor(slot) {
       ${kvOption("tq-k8v4", "TurboQuant k8v4")}
       ${kvOption("tq-off", "TurboQuant av")}
     </select></label>
-    <label class="rapid-only">Spekulativ avkodning<select name="spec_decode">
+    <label class="rapid-only"><span class="field-name">Spekulativ avkodning${tip("Modellens standard låter aliaset välja, till exempel MTP eller en inbyggd TensorFold-drafter. Av skickar --no-spec-decode. MTP gissar flera token med en sidomodell och kontrollerar dem mot huvudmodellen. Träffarna är identiska med vanlig avkodning. Vision-körfält och MTP går inte ihop.")}</span><select name="spec_decode">
       <option value="default" ${spec === "default" ? "selected" : ""}>Modellens standard</option>
       <option value="off" ${spec === "off" ? "selected" : ""}>Av</option>
       <option value="mtp" ${spec === "mtp" ? "selected" : ""}>MTP</option>
     </select></label>
-    <label class="rapid-only">MTP-djup<select name="mtp_depth_mode">
+    <label class="rapid-only"><span class="field-name">MTP-djup${tip("Hur många token MTP får gissa per steg. Katalogens djup utelämnar talet så aliaset fyller i sitt, ofta 2 eller 3. Eget djup skickar siffran i MTP-token.")}</span><select name="mtp_depth_mode">
       <option value="auto" ${depthAuto ? "selected" : ""}>Katalogens djup</option>
       <option value="manual" ${depthAuto ? "" : "selected"}>Eget djup</option>
     </select></label>
-    <label class="rapid-only">MTP-token${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
-    <label class="wide rapid-only"><span class="field-name">MTP-utkast</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
-    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"))}
-    <label class="rapid-only">GPU-minne 0.01–1${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
-    <label class="rapid-only">Prefix-cache MB${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
-    <label class="rapid-only">Hybrid-cache poster${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
-    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"))}
-    <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}>Fäst systemprompt</label>
-    <label class="wide">Extra flaggor${input("extra_args", slot.extra_args, "placeholder='--log-level INFO'")}</label>
+    <label class="rapid-only"><span class="field-name">MTP-token${tip("Antal token som gissas per steg när MTP-djup är Eget djup. Fältet är avstängt när katalogens djup används.")}</span>${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
+    <label class="wide rapid-only"><span class="field-name">MTP-utkast${tip("Sidomodellens vikter för MTP. Tomt betyder aliasets eget utkast, ofta en mtp-mapp bredvid huvudvikterna. Välj en vikt bara när aliaset saknar utkast eller du vill peka på ett annat.")}</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
+    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar, upp till modellens egen gräns. Tomt låter motorn uppskatta från minnet. Ett eget tal gäller ändå tillsammans med GPU-taket. Gäller båda motorerna.")}
+    <label class="rapid-only"><span class="field-name">GPU-minne 0.01–1${tip("Andel av enhetens Metallminne som servern får ta, 0.01 till 1. Tomt är automatiskt: budgeten mäts efter laddade vikter och landar mellan cirka 0,90 och 0,97. 1 är taket. Värdet gäller först efter omstart.")}</span>${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
+    <label class="rapid-only"><span class="field-name">Prefix-cache MB${tip("Tak i megabyte för prefix-cachen. Tomt betyder automatiskt, ungefär 20 procent av RAM. Lägre tak kastar gamla promptbörjor tidigare.")}</span>${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
+    <label class="rapid-only"><span class="field-name">Hybrid-cache poster${tip("Hur många återkommande tillstånd som sparas för omstart av samma prompt, på modeller som Mamba eller GatedDeltaNet. Tomt eller 0 stänger av det. Vanliga transformermodeller använder inte posterna.")}</span>${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
+    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. Gäller båda motorerna.")}
+    <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}><span>Fäst systemprompt</span>${tip("Håller systempromptens block kvar i prefix-cachen så det inte kastas när minnet tar slut. Nästa anrop med samma systemprompt slipper räkna om den delen. Kräver att prefix-cachen är på. Prompten i sig ändras inte, och vikterna skrivs inte om.")}</label>
+    <label class="wide"><span class="field-name">Extra flaggor${tip("Råa argument som läggs sist på kommandoraden, till exempel --log-level INFO. Flaggan får inte upprepa ett fält som redan har en egen ruta, som --port, --drafter eller --context.")}</span>${input("extra_args", slot.extra_args, "placeholder='--log-level INFO'")}</label>
     <p class="advice">${escapeText(slot.advice || "")}</p>
   </form>`;
 }
@@ -530,7 +563,12 @@ function card(slot) {
       <button type="button" class="quiet" data-act="log">Logg</button>
       <button type="button" class="danger" data-act="delete">Ta bort</button>
     </div>
-    <pre class="log" hidden></pre>`;
+    <div class="log-wrap" hidden>
+      <div class="row log-tools">
+        <button type="button" class="quiet" data-act="log-color" aria-pressed="false" title="Färglägg nivåer, tider, tal, strängar och sökvägar. Av stänger tillbaka till en färg.">Färglägg</button>
+      </div>
+      <pre class="log" hidden></pre>
+    </div>`;
   article.querySelector(".preview").textContent = slot.command || "";
   const live = article.querySelector(".live");
   live.textContent = slot.live_command ? `Kör just nu: ${slot.live_command}` : "";
@@ -569,6 +607,7 @@ function card(slot) {
   form.addEventListener("focusin", () => dirty.add(slot.id));
   article.addEventListener("click", (event) => onAction(event, slot.id));
   paintButtons(article, slot);
+  paintLogColorButtons();
   return article;
 }
 
@@ -626,16 +665,21 @@ function render(next) {
     if (dirty.has(slot.id)) updateLive(article, slot);
     else {
       const wasOpen = article.classList.contains("open");
+      const wasFollowing = followingLogs.has(slot.id);
       const replacement = card(slot);
       if (wasOpen) {
         replacement.classList.add("open");
         replacement.querySelector('[data-act="edit"]').textContent = "Stäng";
       }
       article.replaceWith(replacement);
+      if (wasFollowing) followLog(replacement, slot.id);
     }
   }
   for (const article of root.querySelectorAll("[data-id]")) {
-    if (!seen.has(article.dataset.id)) article.remove();
+    if (!seen.has(article.dataset.id)) {
+      stopLog(article.dataset.id);
+      article.remove();
+    }
   }
 }
 
@@ -681,6 +725,88 @@ async function refresh() {
 }
 
 const previewTimers = new WeakMap();
+const logTimers = new Map();
+const followingLogs = new Set();
+const LOG_COLOR_KEY = "rapid-mlx-panel-log-color";
+
+function logColorOn() {
+  return localStorage.getItem(LOG_COLOR_KEY) === "on";
+}
+
+function paintLogColorButtons() {
+  const on = logColorOn();
+  document.querySelectorAll('[data-act="log-color"]').forEach((button) => {
+    button.textContent = on ? "En färg" : "Färglägg";
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function colorizeLog(text) {
+  const source = escapeText(text);
+  const pattern = /(&quot;(?:\\.|[^&]|&(?!quot;))*?&quot;|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b|\b\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b|\b(?:ERROR|CRITICAL|FATAL|Traceback|Exception|error)\b|\b(?:WARN|WARNING|warn)\b|\b(?:INFO|info|OK|ready)\b|\b(?:DEBUG|TRACE|debug|trace)\b|\b(?:GET|POST|PUT|PATCH|DELETE|HEAD)\b|\b(?:true|false|null|None)\b|https?:\/\/\S+|\/[\w.~%-][\w./~%-]*|\b\d+(?:\.\d+)?\b/g;
+  return source.replace(pattern, (token) => {
+    let kind = "num";
+    if (token.startsWith('"') || token.startsWith("'") || token.startsWith("&quot;")) kind = "str";
+    else if (/^\d{4}-|^\d{2}:/.test(token)) kind = "time";
+    else if (/^(ERROR|CRITICAL|FATAL|Traceback|Exception|error)$/.test(token)) kind = "err";
+    else if (/^(WARN|WARNING|warn)$/.test(token)) kind = "warn";
+    else if (/^(INFO|info|OK|ready)$/.test(token)) kind = "info";
+    else if (/^(DEBUG|TRACE|debug|trace)$/.test(token)) kind = "debug";
+    else if (/^(GET|POST|PUT|PATCH|DELETE|HEAD)$/.test(token)) kind = "http";
+    else if (/^(true|false|null|None)$/.test(token)) kind = "kw";
+    else if (token.startsWith("http") || token.startsWith("/")) kind = "path";
+    return `<span class="lg-${kind}">${token}</span>`;
+  });
+}
+
+function renderLog(log) {
+  const raw = log.dataset.raw || "";
+  if (logColorOn()) log.innerHTML = colorizeLog(raw);
+  else log.textContent = raw;
+}
+
+function stopLog(id) {
+  const timer = logTimers.get(id);
+  if (timer) clearInterval(timer);
+  logTimers.delete(id);
+  followingLogs.delete(id);
+}
+
+async function paintLog(article, id) {
+  const log = article.querySelector(".log");
+  if (!log || log.hidden) return;
+  const payload = await api(`/api/slots/${id}/log`);
+  const next = payload.log || "Ingen logg ännu.";
+  if (log.dataset.raw === next) return;
+  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 32;
+  log.dataset.raw = next;
+  renderLog(log);
+  if (stick) log.scrollTop = log.scrollHeight;
+}
+
+function followLog(article, id) {
+  stopLog(id);
+  followingLogs.add(id);
+  const log = article.querySelector(".log");
+  const wrap = article.querySelector(".log-wrap");
+  log.hidden = false;
+  if (wrap) wrap.hidden = false;
+  paintLogColorButtons();
+  const button = article.querySelector('[data-act="log"]');
+  if (button) button.textContent = "Dölj logg";
+  let timer = 0;
+  const tick = () => {
+    if (logTimers.get(id) !== timer) return;
+    if (!article.isConnected || log.hidden) {
+      stopLog(id);
+      return;
+    }
+    paintLog(article, id).catch(() => {});
+  };
+  timer = setInterval(tick, 1000);
+  logTimers.set(id, timer);
+  tick();
+}
 
 function schedulePreview(article) {
   const pending = previewTimers.get(article);
@@ -804,18 +930,39 @@ async function onAction(event, id) {
     if (button.dataset.act === "delete") {
       await api(`/api/slots/${id}`, { method: "DELETE" });
       dirty.delete(id);
+      stopLog(id);
+    }
+    if (button.dataset.act === "log-color") {
+      localStorage.setItem(LOG_COLOR_KEY, logColorOn() ? "off" : "on");
+      paintLogColorButtons();
+      document.querySelectorAll("pre.log").forEach(renderLog);
+      return;
     }
     if (button.dataset.act === "log") {
-      const payload = await api(`/api/slots/${id}/log`);
-      const log = article.querySelector(".log");
-      log.hidden = false;
-      log.textContent = payload.log || "Ingen logg ännu.";
+      if (followingLogs.has(id)) {
+        stopLog(id);
+        const log = article.querySelector(".log");
+        const wrap = article.querySelector(".log-wrap");
+        log.hidden = true;
+        if (wrap) wrap.hidden = true;
+        button.textContent = "Logg";
+        return;
+      }
+      followLog(article, id);
       return;
     }
     showError(null);
     await refresh();
   } catch (error) {
     showError(error);
+  }
+}
+
+function collapseOpenedCards() {
+  for (const article of document.querySelectorAll("#slots > .card.open")) {
+    article.classList.remove("open");
+    const button = article.querySelector('[data-act="edit"]');
+    if (button) button.textContent = "Ändra";
   }
 }
 
@@ -826,6 +973,7 @@ function applyView(mode) {
   button.textContent = simplified ? "Full vy" : "Förenklad vy";
   button.setAttribute("aria-pressed", simplified ? "true" : "false");
   localStorage.setItem(VIEW_KEY, simplified ? "simplified" : "full");
+  if (simplified) collapseOpenedCards();
 }
 
 applyView(localStorage.getItem(VIEW_KEY) === "simplified" ? "simplified" : "full");

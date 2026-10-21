@@ -1023,12 +1023,15 @@ def start_slot(slot_id: str) -> dict[str, Any]:
         log_handle = log_path_for(slot_id).open("a", encoding="utf-8")
         try:
             try:
+                env = os.environ.copy()
+                env["PYTHONUNBUFFERED"] = "1"
                 process = subprocess.Popen(
                     argv,
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
                     cwd=str(Path.home()),
+                    env=env,
                 )
             except OSError as exc:
                 raise PanelError(f"kunde inte starta motorn: {exc}") from exc
