@@ -86,6 +86,8 @@ RESERVED_EXTRA = {
     "--cortheon",
     "--learn",
     "--slide",
+    "--api-key",
+    "--api-key-file",
     "--name",
     "--context",
     "--listen",
@@ -221,6 +223,7 @@ def _blank_options() -> dict[str, Any]:
         "cortheon": False,
         "learn": False,
         "slide": False,
+        "api_key": "",
         "embedding_model": "",
         "lane": "auto",
         "prefix_cache": "default",
@@ -367,6 +370,7 @@ def _normalize_slot(item: Any) -> dict[str, Any]:
     slot["cortheon"] = _as_bool(slot.get("cortheon"))
     slot["learn"] = _as_bool(slot.get("learn"))
     slot["slide"] = _as_bool(slot.get("slide"))
+    slot["api_key"] = str(slot.get("api_key") or "").strip()
     return _validate_slot(slot)
 
 
@@ -450,6 +454,9 @@ def _validate_slot(slot: dict[str, Any]) -> dict[str, Any]:
     mtp_model = str(slot.get("mtp_model") or "").strip()
     if any(ord(char) < 32 for char in mtp_model) or len(mtp_model) > 500:
         raise PanelError("MTP-modellen är ogiltig")
+    api_key = str(slot.get("api_key") or "").strip()
+    if any(ord(char) < 32 for char in api_key) or len(api_key) > 500:
+        raise PanelError("API-nyckeln är ogiltig")
     extra = str(slot.get("extra_args") or "")
     if extra:
         try:
@@ -479,6 +486,7 @@ def _validate_slot(slot: dict[str, Any]) -> dict[str, Any]:
             "cortheon": _as_bool(slot.get("cortheon")),
             "learn": _as_bool(slot.get("learn")),
             "slide": _as_bool(slot.get("slide")),
+            "api_key": api_key,
             "embedding_model": embedding,
             "lane": lane,
             "prefix_cache": prefix,
@@ -585,6 +593,8 @@ def _tensorfold_argv(slot: dict[str, Any]) -> list[str]:
         argv.append("--learn")
     if slot.get("slide"):
         argv.append("--slide")
+    if str(slot.get("api_key") or "").strip():
+        argv.extend(["--api-key-file", str(api_key_path(slot["id"]))])
     if slot.get("context_length"):
         argv.extend(["--context", str(slot["context_length"])])
     if slot.get("max_tokens"):
@@ -616,6 +626,10 @@ def build_argv(slot: dict[str, Any]) -> list[str]:
     if not slot.get("model"):
         raise PanelError("välj vikter innan platsen startas")
     if slot.get("engine") == "tensorfold":
+        if slot.get("slide") and not str(slot.get("api_key") or "").strip():
+            raise PanelError(
+                "slide kräver en API-nyckel, annars kan den som når servern skriva om vikterna"
+            )
         return _tensorfold_argv(slot)
     argv = [
         rapid_mlx_bin(),
@@ -858,7 +872,12 @@ def _tensorfold_advice(slot: dict[str, Any]) -> str:
     if slot.get("learn"):
         features.append("learn sparar prompt-cachen")
     if slot.get("slide"):
-        features.append("slide skriver om vikterna i checkpointen")
+        if str(slot.get("api_key") or "").strip():
+            features.append("slide skriver om vikterna och kräver API-nyckeln")
+        else:
+            features.append(
+                "slide är på men saknar API-nyckel, så platsen kan inte startas"
+            )
     if features:
         parts.append(", ".join(features) + ".")
     else:
@@ -1049,6 +1068,21 @@ def prune_runtime(runtime: dict[str, Any], processes: list[dict[str, Any]]) -> b
     return bool(stale)
 
 
+def api_key_path(slot_id: str) -> Path:
+    return state_dir() / "keys" / f"{slot_id}.key"
+
+
+def write_api_key_file(slot_id: str, key: str) -> Path:
+    path = api_key_path(slot_id)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    temporary.write_text(key.strip() + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
+    return path
+
+
 def log_path_for(slot_id: str) -> Path:
     return log_dir() / f"{slot_id}.log"
 
@@ -1089,6 +1123,8 @@ def start_slot(slot_id: str) -> dict[str, Any]:
             if not (root / "main.py").is_file():
                 raise PanelError(f"hittar inte ComfyUI: {root}")
             cwd = str(root)
+        if slot.get("engine") == "tensorfold" and str(slot.get("api_key") or "").strip():
+            write_api_key_file(slot["id"], slot["api_key"])
         _append_log(slot_id, f"\n--- start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         _append_log(slot_id, command_preview(slot) + "\n")
         log_handle = log_path_for(slot_id).open("a", encoding="utf-8")

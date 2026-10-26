@@ -17,6 +17,7 @@
     --ok: #9ddeaf;
     --warn: #e6c37a;
     --input: #10120c;
+    --on-accent: #1a1c12;
   }
   * { box-sizing: border-box; }
   body {
@@ -35,7 +36,7 @@
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   button, .ghost {
     background: var(--accent);
-    color: #1a1c12;
+    color: var(--on-accent);
     border: 0;
     border-radius: 8px;
     padding: 8px 12px;
@@ -58,6 +59,7 @@
     padding: 16px;
     margin: 14px 0;
   }
+  .card { display: flex; flex-direction: column; min-width: 0; }
   .banner { color: var(--danger); }
   .status {
     border-radius: 999px;
@@ -127,84 +129,456 @@
   article[data-engine="rapid-mlx"] .comfy-only,
   article[data-engine="tensorfold"] .comfy-only { display: none; }
   .advice { margin: 0; grid-column: 1 / -1; font-size: 13px; }
-  .actions { margin-top: 12px; }
+  .form-section { display: contents; }
+  .section-label { display: none; }
+  .rail, .sheet { display: contents; }
+  .toolbar, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .toolbar { justify-content: space-between; margin-top: 12px; }
+  .actions-danger { order: 3; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .log-wrap { order: 2; }
+  [data-act="save"] {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--line);
+    font-weight: 550;
+  }
+  .card.dirty [data-act="save"] {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: transparent;
+    font-weight: 650;
+  }
+  .card:has(.status.running) [data-act="stop"],
+  .card:has(.status.external) [data-act="stop"],
+  .card:has(.status.detached) [data-act="restart"] {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: transparent;
+    font-weight: 650;
+  }
+  .card:has(.status.running) [data-act="start"],
+  .card:has(.status.external) [data-act="start"],
+  .card:has(.status.detached) [data-act="start"] {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--line);
+    font-weight: 550;
+  }
   h3 { font-size: 13px; font-weight: 650; margin: 18px 0 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
   [data-act="edit"] { display: none; }
   .status .short { display: none; }
-  body.simplified header.top { padding: 12px 0 4px; }
-  body.simplified h1 { font-size: 20px; margin-bottom: 0; }
-  body.simplified .lede,
-  body.simplified main > h3:has(+ #unassigned.hint),
-  body.simplified #unassigned.hint { display: none; }
-  body.simplified #state-path { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  body.simplified #slots > .card:not(.open) {
+  label.view-switch { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: inherit; }
+  label.view-switch select { width: auto; min-width: 12.5rem; font-weight: 650; }
+  #view-note { margin-top: 8px; max-width: 78ch; }
+  .title-kicker { display: none; font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  body.view-console {
+    --bg: #0e141b;
+    --card: #16202b;
+    --line: #2c3d4e;
+    --text: #e7eef6;
+    --muted: #93a4b8;
+    --accent: #7fd1c3;
+    --on-accent: #0d1614;
+    --danger: #f0a39a;
+    --ok: #8ed4a8;
+    --warn: #e6c98a;
+    --input: #0c1218;
+  }
+  body.view-workspace {
+    --bg: #1a1614;
+    --card: #26201c;
+    --line: #40342c;
+    --text: #f6efe6;
+    --muted: #b7a89a;
+    --accent: #e2a15a;
+    --on-accent: #1c140c;
+    --danger: #e58b7a;
+    --ok: #b7d39a;
+    --warn: #e6c37a;
+    --input: #140f0d;
+  }
+  body.view-workspace header.top,
+  body.view-workspace main { width: min(1240px, calc(100% - 28px)); }
+  body.view-atelier {
+    color-scheme: light;
+    --bg: #efeae0;
+    --card: #fbf8f2;
+    --line: #d9d0c2;
+    --text: #241e18;
+    --muted: #6d645b;
+    --accent: #1f6b56;
+    --on-accent: #f4f7f2;
+    --danger: #9c3b32;
+    --ok: #1d7a45;
+    --warn: #8a5a10;
+    --input: #fffdf9;
+  }
+  body.view-signal {
+    --bg: #0c0d0b;
+    --card: #141613;
+    --line: #32382a;
+    --text: #f3f6ea;
+    --muted: #9aa292;
+    --accent: #d6ff4a;
+    --on-accent: #15180c;
+    --danger: #ff7a68;
+    --ok: #b6f27c;
+    --warn: #ffd166;
+    --input: #090a08;
+  }
+  body.view-signal header.top,
+  body.view-signal main { width: min(1180px, calc(100% - 28px)); }
+  body.view-simplified header.top,
+  body.view-console header.top { padding: 12px 0 4px; }
+  body.view-simplified h1,
+  body.view-console h1 { font-size: 20px; margin-bottom: 0; }
+  body.view-simplified .lede,
+  body.view-console .lede,
+  body.view-simplified main > h3:has(+ #unassigned.hint),
+  body.view-console main > h3:has(+ #unassigned.hint),
+  body.view-simplified #unassigned.hint,
+  body.view-console #unassigned.hint { display: none; }
+  body.view-simplified #state-path,
+  body.view-console #state-path { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.view-simplified #slots > .card:not(.open) {
     display: grid;
-    grid-template-columns: 7rem minmax(8rem, 0.7fr) minmax(14rem, 1.6fr) auto auto;
+    grid-template-columns: minmax(6rem, 7.5rem) minmax(8rem, 0.7fr) minmax(14rem, 1.6fr) auto auto;
     align-items: center;
     gap: 6px 12px;
     margin: 4px 0;
     padding: 6px 10px;
   }
-  body.simplified #slots > .card:not(.open) .head,
-  body.simplified #slots > .card:not(.open) .head > div,
-  body.simplified #slots > .card:not(.open) form { display: contents; }
-  body.simplified #slots > .card:not(.open) h2 { grid-column: 1; font-size: 15px; }
-  body.simplified #slots > .card:not(.open) .meta {
+  body.view-simplified #slots > .card:not(.open) .head,
+  body.view-simplified #slots > .card:not(.open) .title-block,
+  body.view-simplified #slots > .card:not(.open) form,
+  body.view-simplified #slots > .card:not(.open) .form-section { display: contents; }
+  body.view-simplified #slots > .card:not(.open) h2 { grid-column: 1; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.view-simplified #slots > .card:not(.open) .meta {
     grid-column: 2;
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  body.simplified #slots > .card:not(.open) .meta-model { display: none; }
-  body.simplified #slots > .card:not(.open) label.weights {
+  body.view-simplified #slots > .card:not(.open) .meta-model { display: none; }
+  body.view-simplified #slots > .card:not(.open) label.weights {
     grid-column: 3;
     display: block;
     min-width: 0;
   }
-  body.simplified #slots > .card:not(.open) label.weights .field-name { display: none; }
-  body.simplified #slots > .card:not(.open) form > label:not(.weights),
-  body.simplified #slots > .card:not(.open) h3,
-  body.simplified #slots > .card:not(.open) .preview,
-  body.simplified #slots > .card:not(.open) .advice,
-  body.simplified #slots > .card:not(.open) .live,
-  body.simplified #slots > .card:not(.open) .log,
-  body.simplified #slots > .card:not(.open) .log-wrap,
-  body.simplified #slots > .card:not(.open) [data-act="save"],
-  body.simplified #slots > .card:not(.open) [data-act="log"],
-  body.simplified #slots > .card:not(.open) [data-act="delete"] { display: none; }
-  body.simplified #slots > .card.dirty:not(.open) [data-act="save"] { display: inline-block; }
-  body.simplified #slots > .card:not(.open) .status { grid-column: 4; }
-  body.simplified #slots > .card:not(.open) .actions { grid-column: 5; }
-  body.simplified #slots > .card:not(.open) .actions { margin: 0; flex-wrap: nowrap; }
-  body.simplified #slots > .card:not(.open) .actions button { padding: 4px 8px; }
-  body.simplified [data-act="edit"] { display: inline-block; }
-  body.simplified .status .long { display: none; }
-  body.simplified .status .short { display: inline; }
-  body.simplified #unassigned .card {
+  body.view-simplified #slots > .card:not(.open) label.weights .field-name { display: none; }
+  body.view-simplified #slots > .card:not(.open) form label:not(.weights),
+  body.view-simplified #slots > .card:not(.open) h3,
+  body.view-simplified #slots > .card:not(.open) .preview,
+  body.view-simplified #slots > .card:not(.open) .advice,
+  body.view-simplified #slots > .card:not(.open) .live,
+  body.view-simplified #slots > .card:not(.open) .log,
+  body.view-simplified #slots > .card:not(.open) .log-wrap,
+  body.view-simplified #slots > .card:not(.open) .actions-danger,
+  body.view-simplified #slots > .card:not(.open) [data-act="save"],
+  body.view-simplified #slots > .card:not(.open) [data-act="log"] { display: none; }
+  body.view-simplified #slots > .card.dirty:not(.open) [data-act="save"] { display: inline-block; }
+  body.view-simplified #slots > .card:not(.open) .status { grid-column: 4; }
+  body.view-simplified #slots > .card:not(.open) .toolbar {
+    grid-column: 5;
+    margin: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+  body.view-simplified #slots > .card:not(.open) .actions { margin: 0; flex-wrap: nowrap; }
+  body.view-simplified #slots > .card:not(.open) .actions button { padding: 4px 8px; }
+  body.view-simplified [data-act="edit"],
+  body.view-console [data-act="edit"] { display: inline-block; }
+  body.view-simplified .status .long,
+  body.view-console #slots > .card:not(.open) .status .long,
+  body.view-workspace #slot-index .status .long { display: none; }
+  body.view-simplified .status .short,
+  body.view-console #slots > .card:not(.open) .status .short,
+  body.view-workspace #slot-index .status .short { display: inline; }
+  body.view-simplified #unassigned .card,
+  body.view-console #unassigned .card {
     display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 10px;
     margin: 4px 0;
     padding: 6px 10px;
   }
-  body.simplified #unassigned .live {
+  body.view-simplified #unassigned .live,
+  body.view-console #unassigned .live {
     margin: 0;
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  @media (max-width: 800px) {
-    form { grid-template-columns: 1fr; }
-    body.simplified #slots > .card:not(.open) { grid-template-columns: 1fr auto; }
-    body.simplified #slots > .card:not(.open) h2,
-    body.simplified #slots > .card:not(.open) .meta,
-    body.simplified #slots > .card:not(.open) label.weights,
-    body.simplified #slots > .card:not(.open) .status { grid-column: auto; }
-    body.simplified #slots > .card:not(.open) label.weights { grid-column: 1 / -1; }
-    body.simplified #slots > .card:not(.open) .actions { grid-column: 1 / -1; }
+  body.view-simplified #slots > .card[data-engine="comfyui"]:not(.open) .meta { grid-column: 2 / span 2; }
+  body.view-console #slots > .card:not(.open) {
+    display: grid;
+    grid-template-columns: auto minmax(7rem, 0.8fr) minmax(12rem, 1.6fr) auto;
+    align-items: center;
+    gap: 6px 12px;
+    margin: 4px 0;
+    padding: 8px 10px;
   }
+  body.view-console #slots > .card:not(.open) .head,
+  body.view-console #slots > .card:not(.open) .title-block { display: contents; }
+  body.view-console #slots > .card:not(.open) .status { grid-column: 1; }
+  body.view-console #slots > .card:not(.open) h2 { grid-column: 2; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.view-console #slots > .card:not(.open) .meta {
+    grid-column: 3;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  body.view-console #slots > .card:not(.open) .toolbar { grid-column: 4; margin: 0; flex-wrap: nowrap; justify-content: flex-end; }
+  body.view-console #slots > .card:not(.open) .actions { flex-wrap: nowrap; }
+  body.view-console #slots > .card:not(.open) .actions button { padding: 4px 8px; }
+  body.view-console #slots > .card:not(.open) form,
+  body.view-console #slots > .card:not(.open) .command-label,
+  body.view-console #slots > .card:not(.open) .preview,
+  body.view-console #slots > .card:not(.open) .live,
+  body.view-console #slots > .card:not(.open) .actions-danger,
+  body.view-console #slots > .card:not(.open) [data-act="save"] { display: none; }
+  body.view-console #slots > .card.dirty:not(.open) [data-act="save"] { display: inline-block; }
+  body.view-console #slots > .card:not(.open) .log-wrap,
+  body.view-console #slots > .card:not(.open) .activity { grid-column: 1 / -1; }
+  body.view-console #slots > .card:not(.open) .activity {
+    display: block;
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted);
+  }
+  body.view-console #slots > .card:not(.open) .activity::before {
+    content: "";
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    margin-right: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    vertical-align: 0;
+  }
+  body.view-console #slots > .card:not(.open) .activity.live-now { color: var(--ok); }
+  body.view-console #slots > .card:not(.open) .activity.live-now::before {
+    animation: log-pulse 1s ease-in-out infinite;
+  }
+  body.view-console #slots > .card:not(.open) .activity.moving {
+    animation: log-nudge 0.4s ease;
+  }
+  @keyframes log-pulse { 50% { opacity: 0.2; } }
+  @keyframes log-nudge {
+    from { transform: translateY(5px); opacity: 0.35; }
+    to { transform: none; opacity: 1; }
+  }
+  body.view-console .status::before,
+  body.view-signal .status::before {
+    content: "";
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    vertical-align: 0;
+  }
+  body.view-atelier .form-section,
+  body.view-signal .form-section,
+  body.view-console .card.open .form-section,
+  body.view-workspace .card.focus .form-section,
+  body.view-workspace #draft .card .form-section {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--input) 72%, transparent);
+  }
+  body.view-atelier .section-label,
+  body.view-signal .section-label,
+  body.view-console .card.open .section-label,
+  body.view-workspace .card.focus .section-label,
+  body.view-workspace #draft .card .section-label {
+    display: block;
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  body.view-atelier form,
+  body.view-signal form,
+  body.view-console .card.open form,
+  body.view-workspace .card.focus form,
+  body.view-workspace #draft .card form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  body.view-atelier .card .head,
+  body.view-console .card.open .head,
+  body.view-workspace .card.focus .head,
+  body.view-workspace #draft .card .head { order: 0; }
+  body.view-atelier .card .toolbar,
+  body.view-console .card.open .toolbar,
+  body.view-workspace .card.focus .toolbar,
+  body.view-workspace #draft .card .toolbar { order: 1; }
+  body.view-atelier .card .live,
+  body.view-console .card.open .live,
+  body.view-workspace .card.focus .live,
+  body.view-workspace #draft .card .live { order: 2; }
+  body.view-atelier .card form,
+  body.view-console .card.open form,
+  body.view-workspace .card.focus form,
+  body.view-workspace #draft .card form { order: 3; }
+  body.view-atelier .card .command-label,
+  body.view-console .card.open .command-label,
+  body.view-workspace .card.focus .command-label,
+  body.view-workspace #draft .card .command-label { order: 4; }
+  body.view-atelier .card .preview,
+  body.view-console .card.open .preview,
+  body.view-workspace .card.focus .preview,
+  body.view-workspace #draft .card .preview { order: 5; }
+  body.view-atelier .card .log-wrap,
+  body.view-console .card.open .log-wrap,
+  body.view-workspace .card.focus .log-wrap,
+  body.view-workspace #draft .card .log-wrap { order: 6; }
+  body.view-atelier .card .actions-danger,
+  body.view-console .card.open .actions-danger,
+  body.view-workspace .card.focus .actions-danger,
+  body.view-workspace #draft .card .actions-danger { order: 7; }
+  .advice-live:empty { display: none; }
+  body.view-workspace #slots {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+  body.view-workspace #slots:not(:has(#slot-index .card)) { grid-template-columns: 1fr; }
+  body.view-workspace #slot-index {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+    min-width: 0;
+  }
+  body.view-workspace #slot-index:not(:has(.card)) { display: none; }
+  body.view-workspace #slot-index::before {
+    content: "Platser";
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 2px 2px 0;
+  }
+  body.view-workspace #slot-detail { min-width: 0; }
+  body.view-workspace #slot-detail .card,
+  body.view-workspace #slot-index .card { margin: 0; }
+  body.view-workspace #slot-index .card { padding: 8px 10px; cursor: pointer; }
+  body.view-workspace #slot-index .card:hover,
+  body.view-workspace #slot-index .card:focus { border-color: var(--accent); }
+  body.view-workspace #slot-index .card :is(form, .rail, .live, .command-label, .preview, .log-wrap) { display: none; }
+  body.view-workspace #slot-index .meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  body.view-workspace .card.focus .title-kicker { display: block; margin-bottom: 2px; }
+  body.view-workspace #slots:not(:has(#slot-index .card)) .title-kicker { display: none; }
+  body.view-signal .card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 168px;
+    column-gap: 16px;
+    align-items: start;
+  }
+  body.view-signal .head { grid-column: 1; grid-row: 1; }
+  body.view-signal .sheet {
+    display: flex;
+    flex-direction: column;
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+  }
+  body.view-signal .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    position: sticky;
+    top: 12px;
+    align-self: start;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--input) 84%, var(--card));
+  }
+  body.view-signal .toolbar { flex-direction: column; align-items: stretch; margin: 0; }
+  body.view-signal .actions { flex-direction: column; align-items: stretch; }
+  body.view-signal .actions button { width: 100%; }
+  body.view-signal .actions-danger { order: 1; margin-top: 4px; }
+  @media (max-width: 800px) {
+    form,
+    body.view-atelier .form-section,
+    body.view-signal .form-section,
+    body.view-console .card.open .form-section,
+    body.view-workspace .card.focus .form-section,
+    body.view-workspace #draft .card .form-section { grid-template-columns: 1fr; }
+    label.view-switch, label.view-switch select { width: 100%; }
+    body.view-simplified #slots > .card:not(.open),
+    body.view-console #slots > .card:not(.open) { grid-template-columns: 1fr auto; }
+    body.view-simplified #slots > .card:not(.open) h2,
+    body.view-simplified #slots > .card:not(.open) .meta,
+    body.view-simplified #slots > .card:not(.open) label.weights,
+    body.view-simplified #slots > .card:not(.open) .status,
+    body.view-console #slots > .card:not(.open) h2,
+    body.view-console #slots > .card:not(.open) .meta,
+    body.view-console #slots > .card:not(.open) .status { grid-column: auto; }
+    body.view-simplified #slots > .card:not(.open) label.weights,
+    body.view-simplified #slots > .card:not(.open) .toolbar,
+    body.view-console #slots > .card:not(.open) .meta,
+    body.view-console #slots > .card:not(.open) .toolbar { grid-column: 1 / -1; }
+    body.view-simplified #slots > .card:not(.open) .toolbar,
+    body.view-simplified #slots > .card:not(.open) .actions,
+    body.view-console #slots > .card:not(.open) .toolbar,
+    body.view-console #slots > .card:not(.open) .actions { flex-wrap: wrap; justify-content: flex-start; }
+    body.view-simplified #slots > .card[data-engine="comfyui"]:not(.open) .meta { grid-column: auto; }
+    body.view-workspace #slots { grid-template-columns: 1fr; }
+    body.view-workspace #slot-detail { order: -1; }
+    body.view-workspace #slot-index { position: static; max-height: none; }
+    body.view-signal .card { grid-template-columns: 1fr; }
+    body.view-signal .head { grid-column: 1; grid-row: 1; }
+    body.view-signal .rail {
+      grid-column: 1;
+      grid-row: 2;
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    body.view-signal .sheet { grid-column: 1; grid-row: 3; }
+    body.view-signal .toolbar { display: contents; }
+    body.view-signal .actions { flex-direction: row; flex-wrap: wrap; }
+    body.view-signal .actions button { width: auto; }
+    body.view-signal .actions-danger { margin: 0; padding-top: 0; border-top: 0; }
+  }
+  article.card[data-engine="tensorfold"] .rapid-only,
+  article.card[data-engine="comfyui"] .rapid-only,
+  article.card[data-engine="comfyui"] .llm-only,
+  article.card[data-engine="rapid-mlx"] .tensorfold-only,
+  article.card[data-engine="comfyui"] .tensorfold-only,
+  article.card[data-engine="rapid-mlx"] .comfy-only,
+  article.card[data-engine="tensorfold"] .comfy-only { display: none !important; }
 </style>
 </head>
 <body>
@@ -212,11 +586,21 @@
   <h1>Rapid-MLX-panel</h1>
   <p class="lede">Varje plats är en port, ett API-namn och en uppsättning vikter. Valen sparas på disk och finns kvar efter omstart. En modell som redan körs lämnas ifred tills du stoppar eller startar om den.</p>
   <div class="row" style="margin-top:14px">
+    <label class="view-switch">Vy
+      <select id="view-picker" aria-describedby="view-note">
+        <option value="classic">Klassisk</option>
+        <option value="simplified">Förenklad vy</option>
+        <option value="console">Konsol</option>
+        <option value="workspace">Arbetsyta</option>
+        <option value="atelier">Ateljé</option>
+        <option value="signal">Signal</option>
+      </select>
+    </label>
     <button type="button" id="new-slot">Ny plats</button>
-    <button type="button" class="secondary" id="view-toggle" aria-pressed="false">Förenklad vy</button>
     <button type="button" class="secondary" id="reload-models">Uppdatera vikter</button>
     <span class="hint" id="state-path"></span>
   </div>
+  <p class="hint" id="view-note"></p>
 </header>
 <main>
   <div id="banner" class="banner" hidden></div>
@@ -444,6 +828,11 @@ function kvModeOf(slot) {
   return slot.kv_cache_dtype || "default";
 }
 
+function section(title, className, inner) {
+  const extra = className ? ` ${className}` : "";
+  return `<div class="form-section${extra}"><h3 class="section-label">${title}</h3>${inner}</div>`;
+}
+
 function editor(slot) {
   const lane = slot.lane || "auto";
   const prefix = slot.prefix_cache || "default";
@@ -453,6 +842,7 @@ function editor(slot) {
   const engine = engineId(slot.engine);
   const kvOption = (value, label) => `<option value="${value}" ${kv === value ? "selected" : ""}>${label}</option>`;
   return `<form>
+    ${section("Plats", "", `
     ${field("Namn", input("name", slot.name, "required"), "Namnet på platsen i panelen. Klienter ser det inte.")}
     ${field("Port", input("port", slot.port, "required inputmode='numeric'"), "Porten servern lyssnar på, bara på 127.0.0.1. Byt port kräver omstart.")}
     ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"), "Modellnamnet klienten skickar i anropet. Tomt betyder vikternas eget namn. rapid-mlx skickar --served-model-name när det skiljer sig. Zig skickar alltid --name när fältet är ifyllt.", "llm-only")}
@@ -462,19 +852,18 @@ function editor(slot) {
       <option value="comfyui" ${engine === "comfyui" ? "selected" : ""}>ComfyUI</option>
     </select></label>
     <p class="advice comfy-only">Diffusionsserver. Vikterna väljs i arbetsflödet. Start, stopp och omstart gäller processen på den här porten.</p>
+    `)}
+    ${section("Modell", "llm-only", `
     <label class="wide weights llm-only"><span class="field-name">Vikter${tip("Checkpointen som laddas. Listan är cachade modeller. En lokal sökväg som inte finns i listan skrivs i Egen vikt när motorn är Zig. Peka på 4-bit-mappen, inte på ett repo som innehåller flera kvantiseringar.")}</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
     <label class="wide tensorfold-only"><span class="field-name">Egen vikt${tip("Repo eller mapp som inte finns i listan, till exempel en lokal 4-bit-katalog. Fylls fältet i vinner det över listan.")}</span>${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
-    <label class="wide tensorfold-only"><span class="field-name">Drafter${tip("Mindre modell som föreslår flera token åt gången, till exempel z-lab/Qwen3.8-27B-DFlash2. Tomt val betyder ingen drafter. Utkastet måste matcha målmodellens bredd och lager. MTP-sidovagnen är inte en DFlash-drafter.")}</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}"></select></label>
-    <label class="wide tensorfold-only"><span class="field-name">Egen drafter${tip("Repo eller sökväg till en drafter som inte finns i listan. Fylls fältet i vinner det över listan.")}</span>${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
-    <label class="check tensorfold-only"><input type="checkbox" name="cortheon" ${slot.cortheon ? "checked" : ""}><span>Cortheon</span>${tip("Slår på Cortheon: webbresearch och strukturerat resonemang. Det uppdaterar inte vikterna.")}</label>
-    <label class="check tensorfold-only"><input type="checkbox" name="learn" ${slot.learn ? "checked" : ""}><span>Learn</span>${tip("Sparar en inlärd prompt-cache så återkommande promptytor kan hoppas över. Skriver inte om checkpointen.")}</label>
-    <label class="check tensorfold-only"><input type="checkbox" name="slide" ${slot.slide ? "checked" : ""}><span>Slide</span>${tip("Skriver lärdom in i modellens egna 4-bitarsvikter, i grupper om 64. Checkpointen på disk ändras. Panelen har ingen ångra-knapp.")}</label>
     <label class="wide rapid-only"><span class="field-name">Embedding, valfritt${tip("En extra embedding-modell på samma server, via --embedding-model. Tomt betyder ingen. Används av klienter som ber om embeddings, inte av själva chatten.")}</span><select class="embedding-select" name="embedding_model" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
     <label class="rapid-only"><span class="field-name">Körfält${tip("Automatiskt låter rapid-mlx välja text eller vision från modellnamnet. Text tvingar --text-only även om config.json säger vision. Vision tvingar --mllm, stänger av aliasets automatiska MTP och kräver ett fungerande vision-torn.")}</span><select name="lane">
       <option value="auto" ${lane === "auto" ? "selected" : ""}>Automatiskt</option>
       <option value="text" ${lane === "text" ? "selected" : ""}>Text (--text-only)</option>
       <option value="vision" ${lane === "vision" ? "selected" : ""}>Vision (--mllm)</option>
     </select></label>
+    `)}
+    ${section("Avkodning", "rapid-only", `
     <label class="rapid-only"><span class="field-name">Prefix-cache${tip("På återanvänder beräkningen för en gemensam promptbörjan, till exempel samma systemprompt. Det är standard och skickar ingen flagga. Av skickar --disable-prefix-cache, så varje anrop räknas från början.")}</span><select name="prefix_cache">
       <option value="default" ${prefix === "default" ? "selected" : ""}>På</option>
       <option value="off" ${prefix === "off" ? "selected" : ""}>Av</option>
@@ -499,14 +888,27 @@ function editor(slot) {
     </select></label>
     <label class="rapid-only"><span class="field-name">MTP-token${tip("Antal token som gissas per steg när MTP-djup är Eget djup. Fältet är avstängt när katalogens djup används.")}</span>${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
     <label class="wide rapid-only"><span class="field-name">MTP-utkast${tip("Sidomodellens vikter för MTP. Tomt betyder aliasets eget utkast, ofta en mtp-mapp bredvid huvudvikterna. Välj en vikt bara när aliaset saknar utkast eller du vill peka på ett annat.")}</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
+    `)}
+    ${section("TensorFold", "tensorfold-only", `
+    <label class="wide tensorfold-only"><span class="field-name">Drafter${tip("Mindre modell som föreslår flera token åt gången, till exempel z-lab/Qwen3.8-27B-DFlash2. Tomt val betyder ingen drafter. Utkastet måste matcha målmodellens bredd och lager. MTP-sidovagnen är inte en DFlash-drafter.")}</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}"></select></label>
+    <label class="wide tensorfold-only"><span class="field-name">Egen drafter${tip("Repo eller sökväg till en drafter som inte finns i listan. Fylls fältet i vinner det över listan.")}</span>${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="cortheon" ${slot.cortheon ? "checked" : ""}><span>Cortheon</span>${tip("Slår på Cortheon: webbresearch och strukturerat resonemang. Det uppdaterar inte vikterna.")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="learn" ${slot.learn ? "checked" : ""}><span>Learn</span>${tip("Sparar en inlärd prompt-cache så återkommande promptytor kan hoppas över. Skriver inte om checkpointen.")}</label>
+    <label class="check tensorfold-only"><input type="checkbox" name="slide" ${slot.slide ? "checked" : ""}><span>Slide</span>${tip("Skriver lärdom in i modellens egna 4-bitarsvikter, i grupper om 64. Checkpointen på disk ändras. Panelen har ingen ångra-knapp. TensorFold kräver då en API-nyckel, annars kan den som når servern anropa /v1/slide/learn och skriva om vikterna.")}</label>
+    <label class="wide tensorfold-only"><span class="field-name">API-nyckel${tip("Skickas som --api-key-file, inte som text på kommandoraden. Krävs när Slide är på. Klienten skickar samma nyckel. Nyckeln sparas i panelens platsfil och i en fil med rättigheten 0600.")}</span><input type="password" name="api_key" value="${escapeAttr(slot.api_key || "")}" autocomplete="off" placeholder="krävs för slide"></label>
+    `)}
+    ${section("Resurser", "llm-only", `
     ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar, upp till modellens egen gräns. Tomt låter motorn uppskatta från minnet. Ett eget tal gäller ändå tillsammans med GPU-taket. Gäller rapid-mlx och Zig.", "llm-only")}
     <label class="rapid-only"><span class="field-name">GPU-minne 0.01–1${tip("Andel av enhetens Metallminne som servern får ta, 0.01 till 1. Tomt är automatiskt: budgeten mäts efter laddade vikter och landar mellan cirka 0,90 och 0,97. 1 är taket. Värdet gäller först efter omstart.")}</span>${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Prefix-cache MB${tip("Tak i megabyte för prefix-cachen. Tomt betyder automatiskt, ungefär 20 procent av RAM. Lägre tak kastar gamla promptbörjor tidigare.")}</span>${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Hybrid-cache poster${tip("Hur många återkommande tillstånd som sparas för omstart av samma prompt, på modeller som Mamba eller GatedDeltaNet. Tomt eller 0 stänger av det. Vanliga transformermodeller använder inte posterna.")}</span>${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
     ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. Gäller rapid-mlx och Zig.", "llm-only")}
     <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}><span>Fäst systemprompt</span>${tip("Håller systempromptens block kvar i prefix-cachen så det inte kastas när minnet tar slut. Nästa anrop med samma systemprompt slipper räkna om den delen. Kräver att prefix-cachen är på. Prompten i sig ändras inte, och vikterna skrivs inte om.")}</label>
+    `)}
+    ${section("Extra", "", `
     <label class="wide"><span class="field-name">Extra flaggor${tip("Råa argument som läggs sist på kommandoraden, till exempel --log-level INFO. Flaggan får inte upprepa ett fält som redan har en egen ruta, som --port, --drafter eller --context.")}</span>${input("extra_args", slot.extra_args, "placeholder='--log-level INFO'")}</label>
-    <p class="advice">${escapeText(slot.advice || "")}</p>
+    <p class="advice advice-live">${escapeText(slot.advice || "")}</p>
+    `)}
   </form>`;
 }
 
@@ -563,30 +965,42 @@ function card(slot) {
   article.dataset.engine = engineId(slot.engine);
   article.innerHTML = `
     <div class="head">
-      <div>
+      <div class="title-block">
+        <p class="title-kicker">Vald plats</p>
         <h2>${escapeText(slot.name)}</h2>
         <p class="meta"><span class="meta-place">${escapeText(placeLine(slot))}</span><span class="meta-model"> · ${escapeText(slot.model || "inga vikter")}</span></p>
       </div>
       <span class="status ${slot.status || "stopped"}"><span class="long">${STATUS[slot.status] || "Stoppad"}</span><span class="short">${SHORT_STATUS[slot.status] || "Stoppad"}</span></span>
     </div>
+    <p class="activity" hidden></p>
+    <div class="sheet">
     <p class="live"></p>
     ${editor(slot)}
-    <h3>Kommando vid nästa start</h3>
+    <h3 class="command-label">Kommando vid nästa start</h3>
     <pre class="preview"></pre>
-    <div class="actions row">
-      <button type="button" class="secondary" data-act="edit">Ändra</button>
-      <button type="button" data-act="save">Spara</button>
-      <button type="button" data-act="start">Starta</button>
-      <button type="button" class="secondary" data-act="restart">Starta om</button>
-      <button type="button" class="secondary" data-act="stop">Stoppa</button>
-      <button type="button" class="quiet" data-act="log">Logg</button>
-      <button type="button" class="danger" data-act="delete">Ta bort</button>
-    </div>
     <div class="log-wrap" hidden>
       <div class="row log-tools">
         <button type="button" class="quiet" data-act="log-color" aria-pressed="false" title="Färglägg nivåer, tider, tal, strängar och sökvägar. Av stänger tillbaka till en färg.">Färglägg</button>
       </div>
       <pre class="log" hidden></pre>
+    </div>
+    </div>
+    <div class="rail">
+      <div class="toolbar">
+        <div class="actions actions-run">
+          <button type="button" data-act="start">Starta</button>
+          <button type="button" class="secondary" data-act="stop">Stoppa</button>
+          <button type="button" class="secondary" data-act="restart">Starta om</button>
+        </div>
+        <div class="actions actions-file">
+          <button type="button" class="secondary" data-act="edit">Ändra</button>
+          <button type="button" data-act="save">Spara</button>
+          <button type="button" class="quiet" data-act="log">Logg</button>
+        </div>
+      </div>
+      <div class="actions actions-danger">
+        <button type="button" class="danger" data-act="delete">Ta bort</button>
+      </div>
     </div>`;
   article.querySelector(".preview").textContent = slot.command || "";
   const live = article.querySelector(".live");
@@ -624,7 +1038,23 @@ function card(slot) {
     schedulePreview(article);
   });
   form.addEventListener("focusin", () => dirty.add(slot.id));
-  article.addEventListener("click", (event) => onAction(event, slot.id));
+  article.addEventListener("click", (event) => {
+    if (
+      article.dataset.id !== "ny" &&
+      document.body.classList.contains("view-workspace") &&
+      !article.classList.contains("focus") &&
+      !event.target.closest("button, input, select, textarea, a")
+    ) {
+      focusSlot(article.dataset.id);
+      return;
+    }
+    onAction(event, slot.id);
+  });
+  article.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.target !== article || article.dataset.id === "ny") return;
+    if (!document.body.classList.contains("view-workspace") || article.classList.contains("focus")) return;
+    focusSlot(article.dataset.id);
+  });
   paintButtons(article, slot);
   paintLogColorButtons();
   return article;
@@ -649,7 +1079,7 @@ function updateLive(article, slot) {
   article.querySelector(".live").textContent = slot.live_command ? `Kör just nu: ${slot.live_command}` : "";
   if (!dirty.has(slot.id)) {
     article.querySelector(".preview").textContent = slot.command || "";
-    const advice = article.querySelector(".advice");
+    const advice = article.querySelector(".advice-live");
     if (advice) advice.textContent = slot.advice || "";
   }
   const place = article.querySelector(".meta-place");
@@ -676,7 +1106,7 @@ function render(next) {
     }
     if (article.dataset.sig === signature(slot)) {
       if (!dirty.has(slot.id)) {
-        const advice = article.querySelector(".advice");
+        const advice = article.querySelector(".advice-live");
         if (advice && slot.advice) advice.textContent = slot.advice;
       }
       continue;
@@ -684,8 +1114,10 @@ function render(next) {
     if (dirty.has(slot.id)) updateLive(article, slot);
     else {
       const wasOpen = article.classList.contains("open");
+      const wasFocus = article.classList.contains("focus");
       const wasFollowing = followingLogs.has(slot.id);
       const replacement = card(slot);
+      if (wasFocus) replacement.classList.add("focus");
       if (wasOpen) {
         replacement.classList.add("open");
         replacement.querySelector('[data-act="edit"]').textContent = "Stäng";
@@ -697,9 +1129,13 @@ function render(next) {
   for (const article of root.querySelectorAll("[data-id]")) {
     if (!seen.has(article.dataset.id)) {
       stopLog(article.dataset.id);
+      stopActivity(article.dataset.id);
+      activitySeen.delete(article.dataset.id);
       article.remove();
     }
   }
+  ensureWorkspaceFocus();
+  syncActivity();
 }
 
 function renderUnassigned(items) {
@@ -745,7 +1181,11 @@ async function refresh() {
 
 const previewTimers = new WeakMap();
 const logTimers = new Map();
+const activityTimers = new Map();
+const activityArticles = new Map();
+const activitySeen = new Map();
 const followingLogs = new Set();
+const ACTIVITY_WINDOW_MS = 8000;
 const LOG_COLOR_KEY = "rapid-mlx-panel-log-color";
 
 function logColorOn() {
@@ -789,6 +1229,75 @@ function stopLog(id) {
   if (timer) clearInterval(timer);
   logTimers.delete(id);
   followingLogs.delete(id);
+}
+
+function stopActivity(id) {
+  const timer = activityTimers.get(id);
+  if (timer) clearInterval(timer);
+  activityTimers.delete(id);
+  activityArticles.delete(id);
+}
+
+function lastLogLine(text) {
+  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : "Ingen logg ännu.";
+}
+
+function paintActivity(article, text, changed) {
+  const line = article.querySelector(".activity");
+  if (!line) return;
+  const seen = activitySeen.get(article.dataset.id);
+  const fresh = Boolean(seen) && Date.now() - seen.at < ACTIVITY_WINDOW_MS;
+  line.hidden = false;
+  line.classList.toggle("live-now", fresh);
+  line.textContent = `${fresh ? "Aktiv" : "Vila"} · ${lastLogLine(text)}`;
+  if (!changed) return;
+  line.classList.remove("moving");
+  void line.offsetWidth;
+  line.classList.add("moving");
+}
+
+async function tickActivity(id) {
+  const article = activityArticles.get(id);
+  if (!activityTimers.has(id) || !article || !article.isConnected) return;
+  const payload = await api(`/api/slots/${id}/log`);
+  const text = payload.log || "";
+  const previous = activitySeen.get(id);
+  const changed = Boolean(previous) && previous.text !== text;
+  activitySeen.set(id, { text, at: changed ? Date.now() : (previous ? previous.at : 0) });
+  paintActivity(article, text, changed);
+}
+
+function watchActivity(article, id) {
+  activityArticles.set(id, article);
+  if (activityTimers.has(id)) return;
+  const tick = () => {
+    tickActivity(id).catch(() => {});
+  };
+  activityTimers.set(id, setInterval(tick, 1000));
+  tick();
+}
+
+function syncActivity() {
+  const consoleView = document.body.classList.contains("view-console");
+  const live = new Set();
+  for (const article of document.querySelectorAll("#slots .card[data-id]")) {
+    const id = article.dataset.id;
+    const running = article.querySelector(".status.running, .status.external, .status.detached");
+    const line = article.querySelector(".activity");
+    if (!consoleView || article.classList.contains("open") || !running) {
+      stopActivity(id);
+      if (line) line.hidden = true;
+      continue;
+    }
+    live.add(id);
+    watchActivity(article, id);
+    const seen = activitySeen.get(id);
+    if (seen) paintActivity(article, seen.text, false);
+  }
+  for (const id of [...activityTimers.keys()]) {
+    if (!live.has(id)) stopActivity(id);
+  }
 }
 
 async function paintLog(article, id) {
@@ -836,11 +1345,11 @@ function schedulePreview(article) {
     try {
       const payload = await api("/api/preview", { method: "POST", body: JSON.stringify(readForm(form)) });
       const preview = article.querySelector(".preview");
-      const advice = article.querySelector(".advice");
+      const advice = article.querySelector(".advice-live");
       if (preview) preview.textContent = payload.command || "";
       if (advice) advice.textContent = payload.advice || "";
     } catch (error) {
-      const advice = article.querySelector(".advice");
+      const advice = article.querySelector(".advice-live");
       if (advice) advice.textContent = error.message || "";
     }
   }, 200));
@@ -864,6 +1373,7 @@ function blankSlot() {
     cortheon: false,
     learn: false,
     slide: false,
+    api_key: "",
     embedding_model: "",
     lane: "auto",
     prefix_cache: "default",
@@ -950,6 +1460,8 @@ async function onAction(event, id) {
       await api(`/api/slots/${id}`, { method: "DELETE" });
       dirty.delete(id);
       stopLog(id);
+      stopActivity(id);
+      activitySeen.delete(id);
     }
     if (button.dataset.act === "log-color") {
       localStorage.setItem(LOG_COLOR_KEY, logColorOn() ? "off" : "on");
@@ -965,6 +1477,7 @@ async function onAction(event, id) {
         log.hidden = true;
         if (wrap) wrap.hidden = true;
         button.textContent = "Logg";
+        syncActivity();
         return;
       }
       followLog(article, id);
@@ -985,19 +1498,89 @@ function collapseOpenedCards() {
   }
 }
 
-function applyView(mode) {
-  const simplified = mode === "simplified";
-  document.body.classList.toggle("simplified", simplified);
-  const button = document.querySelector("#view-toggle");
-  button.textContent = simplified ? "Full vy" : "Förenklad vy";
-  button.setAttribute("aria-pressed", simplified ? "true" : "false");
-  localStorage.setItem(VIEW_KEY, simplified ? "simplified" : "full");
-  if (simplified) collapseOpenedCards();
+const VIEWS = {
+  classic: "Alla fält syns. Start, stopp och spara ligger under kommandot. Ta bort är avskilt under loggen.",
+  simplified: "En rad per plats: namn, port, vikter och drift. Ändra fäller ut resten.",
+  console: "Driftknapparna sitter på raden. En rad under varje igång visar om loggen rör sig. Ändra öppnar grupperade inställningar.",
+  workspace: "Välj en plats i listan. Start, stopp och spara sitter kvar över fälten.",
+  atelier: "Inställningarna är grupperade. Driften ligger direkt under namnet. Ta bort ligger i sidfoten.",
+  signal: "Start, stopp, spara, logg och ta bort står samlade intill fälten.",
+};
+const VIEW_IDS = Object.keys(VIEWS);
+let focusId = "";
+
+function focusSlot(id) {
+  focusId = id;
+  ensureWorkspaceFocus();
 }
 
-applyView(localStorage.getItem(VIEW_KEY) === "simplified" ? "simplified" : "full");
-document.querySelector("#view-toggle").addEventListener("click", () => {
-  applyView(document.body.classList.contains("simplified") ? "full" : "simplified");
+function ensureWorkspaceFocus() {
+  const root = document.querySelector("#slots");
+  if (!root) return;
+  const workspace = document.body.classList.contains("view-workspace");
+  let index = root.querySelector(":scope > #slot-index");
+  let detail = root.querySelector(":scope > #slot-detail");
+  const cards = [...root.querySelectorAll(".card")];
+  if (!workspace) {
+    for (const card of cards) {
+      card.classList.remove("focus");
+      card.removeAttribute("tabindex");
+      if (card.parentElement !== root) root.appendChild(card);
+    }
+    if (index) index.remove();
+    if (detail) detail.remove();
+    return;
+  }
+  if (!index || !detail) {
+    index = document.createElement("div");
+    index.id = "slot-index";
+    detail = document.createElement("div");
+    detail.id = "slot-detail";
+    root.append(index, detail);
+  }
+  if (!cards.length) return;
+  if (!cards.some((card) => card.dataset.id === focusId)) focusId = cards[0].dataset.id;
+  const byId = new Map(cards.map((card) => [card.dataset.id, card]));
+  const ordered = [];
+  for (const slot of slots) {
+    const card = byId.get(slot.id);
+    if (card) ordered.push(card);
+  }
+  for (const card of cards) {
+    if (!ordered.includes(card)) ordered.push(card);
+  }
+  for (const card of ordered) {
+    const on = card.dataset.id === focusId;
+    card.classList.toggle("focus", on);
+    const parent = on ? detail : index;
+    if (card.parentElement !== parent) parent.appendChild(card);
+    if (on) card.removeAttribute("tabindex");
+    else card.tabIndex = 0;
+  }
+}
+
+function storedView() {
+  const saved = localStorage.getItem(VIEW_KEY);
+  if (saved === "full" || !saved) return "classic";
+  return VIEW_IDS.includes(saved) ? saved : "classic";
+}
+
+function applyView(mode) {
+  if (!VIEW_IDS.includes(mode)) mode = "classic";
+  for (const id of VIEW_IDS) document.body.classList.toggle(`view-${id}`, id === mode);
+  const picker = document.querySelector("#view-picker");
+  if (picker) picker.value = mode;
+  const note = document.querySelector("#view-note");
+  if (note) note.textContent = VIEWS[mode];
+  localStorage.setItem(VIEW_KEY, mode);
+  if (mode === "simplified" || mode === "console") collapseOpenedCards();
+  ensureWorkspaceFocus();
+  syncActivity();
+}
+
+applyView(storedView());
+document.querySelector("#view-picker").addEventListener("change", (event) => {
+  applyView(event.target.value);
 });
 document.querySelector("#new-slot").addEventListener("click", showDraft);
 document.querySelector("#reload-models").addEventListener("click", () => refreshModels().catch(showError));

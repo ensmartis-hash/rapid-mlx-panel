@@ -175,6 +175,7 @@ class SlotStoreTest(unittest.TestCase):
                 "cortheon": True,
                 "learn": True,
                 "slide": True,
+                "api_key": "test-slide-key",
                 "context_length": 8192,
                 "spec_decode": "mtp",
                 "mtp_model": "should-not-appear",
@@ -188,14 +189,29 @@ class SlotStoreTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--drafter") + 1], "z-lab/Qwen3.8-27B-DFlash2")
         self.assertEqual(argv[argv.index("--name") + 1], "qwen38-27b")
         self.assertEqual(argv[argv.index("--context") + 1], "8192")
-        for flag in ("--cortheon", "--learn", "--slide"):
+        for flag in ("--cortheon", "--learn", "--slide", "--api-key-file"):
             self.assertIn(flag, argv)
+        self.assertNotIn("test-slide-key", argv)
+        self.assertTrue(argv[argv.index("--api-key-file") + 1].endswith("/keys/fold.key"))
         self.assertNotIn("--speculative-config", argv)
         self.assertNotIn("--mllm", argv)
         self.assertNotIn("should-not-appear", argv)
         advice = panel.describe_slot(slot, None)
         self.assertIn("model_type är qwen3", advice)
         self.assertIn("slide skriver om vikterna", advice)
+        missing = panel._normalize_slot(
+            {
+                "id": "fold-open",
+                "name": "fold-open",
+                "port": 18020,
+                "model": "TensorFold/Qwen3.8-27B-MLX-4bit",
+                "engine": "tensorfold",
+                "slide": True,
+            }
+        )
+        self.assertEqual(missing["slide"], True)
+        with self.assertRaises(panel.PanelError):
+            panel.build_argv(missing)
         kept = panel._normalize_slot(
             {"id": "smart", "name": "smart", "port": 18019, "model": "qwen3.8-27b-4bit"}
         )
