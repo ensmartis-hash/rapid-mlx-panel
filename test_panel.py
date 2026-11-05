@@ -28,7 +28,10 @@ def _request(port: int, method: str, path: str, body: dict | None = None) -> tup
             payload = response.read().decode()
             return response.status, json.loads(payload) if payload else {}
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode())
+        try:
+            return exc.code, json.loads(exc.read().decode())
+        finally:
+            exc.close()
 
 
 class SlotStoreTest(unittest.TestCase):
@@ -42,6 +45,8 @@ class SlotStoreTest(unittest.TestCase):
         panel._MODELS_CACHE["at"] = 0
         panel._CATALOG_CACHE["payload"] = None
         panel._CATALOG_CACHE["at"] = 0
+        panel._ENGINE_CACHE["payload"] = None
+        panel._ENGINE_CACHE["at"] = 0
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -102,10 +107,43 @@ class SlotStoreTest(unittest.TestCase):
         panel.delete_slot("lab")
         self.assertEqual(panel.load_slots(), [])
 
-    def test_duplicate_port_is_rejected(self) -> None:
-        panel.create_slot({"name": "a", "port": 18012, "model": "qwen3-4b-instruct-2507-4bit"})
+    def test_reorder_persists_and_rejects_a_partial_list(self) -> None:
+        panel.create_slot({"name": "one", "port": 18030, "model": "qwen3-4b-instruct-2507-4bit"})
+        panel.create_slot({"name": "two", "port": 18031, "model": "qwen3-4b-instruct-2507-4bit"})
+        panel.reorder_slots(["two", "one"])
+        self.assertEqual([slot["id"] for slot in panel.load_slots()], ["two", "one"])
         with self.assertRaises(panel.PanelError):
-            panel.create_slot({"name": "b", "port": 18012, "model": "qwen3-4b-instruct-2507-4bit"})
+            panel.reorder_slots(["one"])
+
+    def test_same_port_and_name_can_be_saved(self) -> None:
+        panel.create_slot({"name": "lab", "port": 18012, "model": "qwen3-4b-instruct-2507-4bit"})
+        other = panel.create_slot({"name": "lab", "port": 18012, "model": "another-model"})
+        self.assertNotEqual(other["id"], "lab")
+        slots = panel.load_slots()
+        self.assertEqual([slot["port"] for slot in slots], [18012, 18012])
+        self.assertEqual([slot["name"] for slot in slots], ["lab", "lab"])
+
+    def test_shared_port_is_busy_on_the_slot_that_does_not_own_it(self) -> None:
+        first = panel.create_slot({"name": "a", "port": 18012, "model": "qwen3-4b-instruct-2507-4bit"})
+        second = panel.create_slot({"name": "b", "port": 18012, "model": "another-model"})
+        process = {
+            "pid": 4242,
+            "port": 18012,
+            "command": "rapid-mlx serve one",
+            "model": "one",
+            "uptime": "1s",
+        }
+        runtime = {"pids": {first["id"]: {"pid": 4242, "port": 18012}}}
+        enriched, unassigned = panel.classify(panel.load_slots(), runtime, [process])
+        by_id = {slot["id"]: slot for slot in enriched}
+        self.assertEqual(by_id[first["id"]]["status"], "running")
+        self.assertEqual(by_id[second["id"]]["status"], "busy")
+        self.assertEqual(unassigned, [])
+        outsider = {"pids": {}}
+        enriched, unassigned = panel.classify(panel.load_slots(), outsider, [process])
+        statuses = [slot["status"] for slot in enriched]
+        self.assertEqual(statuses, ["external", "busy"])
+        self.assertEqual(unassigned, [])
 
     def test_extra_args_cannot_override_port_or_api_name(self) -> None:
         with self.assertRaises(panel.PanelError):
@@ -227,6 +265,40 @@ class SlotStoreTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--port") + 1], "18192")
         self.assertNotIn("serve", argv)
         self.assertIn("diffusionsservern", panel.describe_slot(comfy, None))
+        optiq = panel._normalize_slot(
+            {
+                "id": "obliterated",
+                "name": "obliterated",
+                "port": 18010,
+                "model": "mlx-community/Qwen3.8-27B-OBLITERATED-OptiQ-4bit",
+                "engine": "optiq",
+                "spec_decode": "mtp",
+                "kv_cache_dtype": "int4",
+                "max_tokens": 4096,
+                "context_length": 32768,
+                "api_key": "sk-optiq-panel",
+            }
+        )
+        argv = panel.build_argv(optiq)
+        self.assertEqual(argv[0], panel.optiq_bin())
+        self.assertEqual(argv[1:3], ["serve", "--model"])
+        self.assertIn("--mtp", argv)
+        self.assertEqual(argv[argv.index("--kv-bits") + 1], "4")
+        self.assertEqual(argv[argv.index("--max-context") + 1], "32768")
+        self.assertEqual(argv[argv.index("--max-tokens") + 1], "4096")
+        self.assertNotIn("--mllm", argv)
+        self.assertNotIn("--speculative-config", argv)
+        self.assertNotIn("sk-optiq-panel", argv)
+        self.assertIn("OPTIQ_API_KEY", panel.describe_slot(optiq, None))
+        heard = panel.parse_serve_command(
+            "/Users/otto/.local/bin/optiq serve --model "
+            "mlx-community/Qwen3.8-27B-OBLITERATED-OptiQ-4bit --host 127.0.0.1 --port 8010 --mtp"
+        )
+        self.assertIsNotNone(heard)
+        assert heard is not None
+        self.assertEqual(heard["engine"], "optiq")
+        self.assertEqual(heard["port"], 8010)
+        self.assertEqual(heard["model"], "mlx-community/Qwen3.8-27B-OBLITERATED-OptiQ-4bit")
 
     def test_turboquant_and_catalog_mtp_are_explicit_in_the_command(self) -> None:
         turbo = panel._normalize_slot(
@@ -381,6 +453,8 @@ class PanelHttpTest(unittest.TestCase):
         panel._MODELS_CACHE["at"] = 0
         panel._CATALOG_CACHE["payload"] = None
         panel._CATALOG_CACHE["at"] = 0
+        panel._ENGINE_CACHE["payload"] = None
+        panel._ENGINE_CACHE["at"] = 0
         self.httpd = panel.ThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -486,6 +560,176 @@ class PanelHttpTest(unittest.TestCase):
         self.assertTrue(stopped["stopped"])
         status, state = _request(self.port, "GET", "/api/state")
         self.assertEqual(state["slots"][0]["status"], "stopped")
+
+    def test_second_slot_on_the_same_port_does_not_start(self) -> None:
+        script = Path(self.tmp.name) / "rapid-mlx"
+        script.write_text("#!/bin/sh\nsleep 60\n", encoding="utf-8")
+        script.chmod(0o755)
+        os.environ["RAPID_MLX_BIN"] = str(script)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            slot_port = probe.getsockname()[1]
+        body = {
+            "port": slot_port,
+            "model": "qwen3-4b-instruct-2507-4bit",
+            "spec_decode": "off",
+        }
+        status, first = _request(self.port, "POST", "/api/slots", {"name": "delad", **body})
+        self.assertEqual(status, 201, first)
+        status, second = _request(self.port, "POST", "/api/slots", {"name": "delad", **body})
+        self.assertEqual(status, 201, second)
+        status, started = _request(self.port, "POST", f"/api/slots/{first['id']}/start")
+        self.assertEqual(status, 200, started)
+        status, state = _request(self.port, "GET", "/api/state")
+        by_id = {slot["id"]: slot for slot in state["slots"]}
+        self.assertEqual(by_id[first["id"]]["status"], "running")
+        self.assertEqual(by_id[second["id"]]["status"], "busy")
+        status, blocked = _request(self.port, "POST", f"/api/slots/{second['id']}/start")
+        self.assertEqual(status, 400, blocked)
+        status, spared = _request(self.port, "POST", f"/api/slots/{second['id']}/stop")
+        self.assertEqual(status, 200, spared)
+        self.assertFalse(spared["stopped"])
+        status, state = _request(self.port, "GET", "/api/state")
+        by_id = {slot["id"]: slot for slot in state["slots"]}
+        self.assertEqual(by_id[first["id"]]["status"], "running")
+        status, stopped = _request(self.port, "POST", f"/api/slots/{first['id']}/stop")
+        self.assertEqual(status, 200, stopped)
+        self.assertTrue(stopped["stopped"])
+
+
+class EngineStatusTest(unittest.TestCase):
+    def test_parse_releases_skips_prereleases_and_sorts(self) -> None:
+        history = panel.parse_github_releases(
+            [
+                {
+                    "tag_name": "v1.0.0-beta.9",
+                    "prerelease": True,
+                    "body": "beta",
+                    "published_at": "2026-10-22T00:00:00Z",
+                },
+                {
+                    "tag_name": "v1.1.9",
+                    "prerelease": False,
+                    "body": "# TensorFold 1.1.9\n\nSnabbare prompter.",
+                    "published_at": "2026-10-29T11:00:00Z",
+                    "html_url": "https://github.com/ashhart/TensorFold/releases/tag/v1.1.9",
+                },
+                {
+                    "tag_name": "v1.1.1",
+                    "prerelease": False,
+                    "body": "Första.",
+                    "published_at": "2026-10-19T11:33:00Z",
+                    "html_url": "https://github.com/ashhart/TensorFold/releases/tag/v1.1.1",
+                },
+            ]
+        )
+        self.assertEqual([row["version"] for row in history], ["1.1.9", "1.1.1"])
+        self.assertEqual(history[0]["summary"], "TensorFold 1.1.9")
+        self.assertEqual(history[0]["published"], "2026-10-29")
+        self.assertEqual(panel.version_status("1.1.1", "1.1.9"), "behind")
+        self.assertEqual(panel.version_status("1.0.0", "0.16.10"), "ahead")
+        self.assertEqual(panel.version_status("0.16.4", "0.16.4"), "current")
+        self.assertEqual(panel.parse_version("rapid-mlx 0.16.4\n"), "0.16.4")
+
+    def test_engine_status_uses_cache_and_binaries(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        os.environ["RAPID_MLX_PANEL_STATE"] = tmp.name
+        os.environ["RAPID_MLX_PANEL_NO_SEED"] = "1"
+        panel._ENGINE_CACHE["payload"] = None
+        panel._ENGINE_CACHE["at"] = 0
+        binary = Path(tmp.name) / "rapid-mlx"
+        binary.write_text("#!/bin/sh\necho rapid-mlx 0.16.4\n", encoding="utf-8")
+        binary.chmod(0o755)
+        missing = Path(tmp.name) / "missing-tensorfold"
+        os.environ["RAPID_MLX_BIN"] = str(binary)
+        os.environ["TENSORFOLD_BIN"] = str(missing)
+        calls = {"n": 0}
+
+        def fake_fetch(url: str) -> list[dict]:
+            calls["n"] += 1
+            if "Rapid-MLX" in url:
+                return [
+                    {
+                        "tag_name": "v1.0.0",
+                        "prerelease": False,
+                        "body": "Agent.",
+                        "published_at": "2026-10-29T00:00:00Z",
+                        "html_url": "https://github.com/raullenchai/Rapid-MLX/releases/tag/v1.0.0",
+                    }
+                ]
+            return [
+                {
+                    "tag_name": "v1.1.9",
+                    "prerelease": False,
+                    "body": "Metal.",
+                    "published_at": "2026-10-29T00:00:00Z",
+                    "html_url": "https://github.com/ashhart/TensorFold/releases/tag/v1.1.9",
+                }
+            ]
+
+        original = panel.fetch_github_releases
+        original_pypi = panel.fetch_pypi_version
+        panel.fetch_github_releases = fake_fetch
+        panel.fetch_pypi_version = lambda package: "0.7.0"
+        try:
+            report = panel.engine_status(refresh=True)
+            again = panel.engine_status(refresh=False)
+        finally:
+            panel.fetch_github_releases = original
+            panel.fetch_pypi_version = original_pypi
+            tmp.cleanup()
+        self.assertEqual(calls["n"], 2)
+        by_id = {row["id"]: row for row in report["engines"]}
+        self.assertEqual(by_id["rapid-mlx"]["installed"], "0.16.4")
+        self.assertEqual(by_id["rapid-mlx"]["latest"], "1.0.0")
+        self.assertEqual(by_id["rapid-mlx"]["status"], "behind")
+        self.assertEqual(by_id["rapid-mlx"]["history"][0]["summary"], "Agent.")
+        self.assertIsNone(by_id["tensorfold"]["installed"])
+        self.assertEqual(by_id["tensorfold"]["status"], "unknown")
+        self.assertEqual(by_id["optiq"]["latest"], "0.7.0")
+        self.assertEqual(again["engines"][0]["latest"], report["engines"][0]["latest"])
+
+    def test_update_refuses_a_running_engine(self) -> None:
+        with self.assertRaises(panel.PanelError):
+            panel.assert_engine_idle("rapid-mlx", [{"engine": "rapid-mlx", "port": 8000}])
+
+    def test_tensorfold_update_checks_the_archive_and_retargets_the_symlink(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        install = root / "install" / "bin"
+        install.mkdir(parents=True)
+        old = install / "tensorfold-native"
+        old.write_text("#!/bin/sh\necho tensorfold-native 1.1.1\n", encoding="utf-8")
+        old.chmod(0o755)
+        link = root / "tensorfold"
+        link.symlink_to(old)
+        payload = root / "payload"
+        nested = payload / "tensorfold-1.2.0-macos-arm64" / "bin"
+        nested.mkdir(parents=True)
+        binary = nested / "tensorfold-native"
+        binary.write_text("#!/bin/sh\necho tensorfold-native 1.2.0\n", encoding="utf-8")
+        binary.chmod(0o755)
+        archive = root / "bundle.tar.gz"
+        with panel.tarfile.open(archive, "w:gz") as bundle:
+            bundle.add(payload / "tensorfold-1.2.0-macos-arm64", arcname="tensorfold-1.2.0-macos-arm64")
+        digest = panel.hashlib.sha256(archive.read_bytes()).hexdigest()
+
+        def fake_download(url: str, dest: Path) -> None:
+            if url.endswith(".sha256"):
+                dest.write_text(f"{digest}  tensorfold-1.2.0-macos-arm64.tar.gz\n", encoding="utf-8")
+            else:
+                dest.write_bytes(archive.read_bytes())
+
+        original = panel.download_file
+        panel.download_file = fake_download
+        try:
+            installed = panel.install_tensorfold_release("1.2.0", link)
+        finally:
+            panel.download_file = original
+        self.assertEqual(panel.installed_engine_version(str(link)), "1.2.0")
+        self.assertTrue(installed.endswith("tensorfold-1.2.0-macos-arm64/bin/tensorfold-native"))
+        self.assertTrue(link.is_symlink())
+        tmp.cleanup()
 
 
 if __name__ == "__main__":

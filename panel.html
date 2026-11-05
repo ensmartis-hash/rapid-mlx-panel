@@ -69,9 +69,26 @@
     border: 1px solid var(--line);
   }
   .status.running { color: var(--ok); }
-  .status.external, .status.detached { color: var(--warn); }
+  .status.external, .status.detached, .status.busy { color: var(--warn); }
   .status.stopped { color: var(--muted); }
   .head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .drag-handle {
+    flex: 0 0 auto;
+    align-self: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: grab;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .card.dragging { opacity: 0.45; }
+  .card.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+  .card.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
   .meta { margin-top: 4px; }
   .live, pre {
     margin-top: 10px;
@@ -81,7 +98,8 @@
     font-size: 12px;
     color: var(--muted);
   }
-  pre.log { max-height: 16rem; overflow: auto; }
+  .log-scroll { max-height: 16rem; overflow: auto; overflow-anchor: none; }
+  pre.log { margin-top: 0; }
   .log-tools { margin-top: 10px; }
   pre.log .lg-err { color: var(--danger); font-weight: 650; }
   pre.log .lg-warn { color: var(--warn); }
@@ -123,12 +141,34 @@
   .check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
   article[data-engine="tensorfold"] .rapid-only,
   article[data-engine="comfyui"] .rapid-only,
+  article[data-engine="optiq"] .rapid-only,
   article[data-engine="comfyui"] .llm-only { display: none; }
   article[data-engine="rapid-mlx"] .tensorfold-only,
-  article[data-engine="comfyui"] .tensorfold-only { display: none; }
+  article[data-engine="comfyui"] .tensorfold-only,
+  article[data-engine="optiq"] .tensorfold-only { display: none; }
   article[data-engine="rapid-mlx"] .comfy-only,
-  article[data-engine="tensorfold"] .comfy-only { display: none; }
+  article[data-engine="tensorfold"] .comfy-only,
+  article[data-engine="optiq"] .comfy-only { display: none; }
+  article[data-engine="rapid-mlx"] .custom-model,
+  article[data-engine="comfyui"] .custom-model { display: none; }
+  article[data-engine="rapid-mlx"] .optiq-only,
+  article[data-engine="tensorfold"] .optiq-only,
+  article[data-engine="comfyui"] .optiq-only { display: none; }
   .advice { margin: 0; grid-column: 1 / -1; font-size: 13px; }
+  #engines { display: grid; gap: 12px; }
+  #engines[hidden] { display: none; }
+  #engines .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  #engines.collapsed .engine-body,
+  #engines.collapsed .head .hint { display: none; }
+  #engines.collapsed { gap: 0; }
+  #engines.collapsed h2 { margin: 0; }
+  .engine-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .engine h3 { margin: 0 0 4px; font-size: 16px; }
+  .engine .status.behind { color: var(--warn); }
+  .engine .status.current { color: var(--ok); }
+  .engine ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .engine a { color: var(--accent); }
+  @media (max-width: 720px) { .engine-grid { grid-template-columns: 1fr; } }
   .form-section { display: contents; }
   .section-label { display: none; }
   .rail, .sheet { display: contents; }
@@ -242,7 +282,7 @@
   body.view-console #state-path { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   body.view-simplified #slots > .card:not(.open) {
     display: grid;
-    grid-template-columns: minmax(6rem, 7.5rem) minmax(8rem, 0.7fr) minmax(14rem, 1.6fr) auto auto;
+    grid-template-columns: auto minmax(6rem, 7.5rem) minmax(8rem, 0.7fr) minmax(14rem, 1.6fr) auto auto;
     align-items: center;
     gap: 6px 12px;
     margin: 4px 0;
@@ -252,9 +292,10 @@
   body.view-simplified #slots > .card:not(.open) .title-block,
   body.view-simplified #slots > .card:not(.open) form,
   body.view-simplified #slots > .card:not(.open) .form-section { display: contents; }
-  body.view-simplified #slots > .card:not(.open) h2 { grid-column: 1; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.view-simplified #slots > .card:not(.open) .drag-handle { grid-column: 1; }
+  body.view-simplified #slots > .card:not(.open) h2 { grid-column: 2; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   body.view-simplified #slots > .card:not(.open) .meta {
-    grid-column: 2;
+    grid-column: 3;
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -262,7 +303,7 @@
   }
   body.view-simplified #slots > .card:not(.open) .meta-model { display: none; }
   body.view-simplified #slots > .card:not(.open) label.weights {
-    grid-column: 3;
+    grid-column: 4;
     display: block;
     min-width: 0;
   }
@@ -278,9 +319,9 @@
   body.view-simplified #slots > .card:not(.open) [data-act="save"],
   body.view-simplified #slots > .card:not(.open) [data-act="log"] { display: none; }
   body.view-simplified #slots > .card.dirty:not(.open) [data-act="save"] { display: inline-block; }
-  body.view-simplified #slots > .card:not(.open) .status { grid-column: 4; }
+  body.view-simplified #slots > .card:not(.open) .status { grid-column: 5; }
   body.view-simplified #slots > .card:not(.open) .toolbar {
-    grid-column: 5;
+    grid-column: 6;
     margin: 0;
     flex-wrap: nowrap;
     justify-content: flex-end;
@@ -312,10 +353,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  body.view-simplified #slots > .card[data-engine="comfyui"]:not(.open) .meta { grid-column: 2 / span 2; }
+  body.view-simplified #slots > .card[data-engine="comfyui"]:not(.open) .meta { grid-column: 3 / span 2; }
   body.view-console #slots > .card:not(.open) {
     display: grid;
-    grid-template-columns: auto minmax(7rem, 0.8fr) minmax(12rem, 1.6fr) auto;
+    grid-template-columns: auto auto minmax(7rem, 0.8fr) minmax(12rem, 1.6fr) auto;
     align-items: center;
     gap: 6px 12px;
     margin: 4px 0;
@@ -323,16 +364,17 @@
   }
   body.view-console #slots > .card:not(.open) .head,
   body.view-console #slots > .card:not(.open) .title-block { display: contents; }
-  body.view-console #slots > .card:not(.open) .status { grid-column: 1; }
-  body.view-console #slots > .card:not(.open) h2 { grid-column: 2; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.view-console #slots > .card:not(.open) .drag-handle { grid-column: 1; }
+  body.view-console #slots > .card:not(.open) .status { grid-column: 2; }
+  body.view-console #slots > .card:not(.open) h2 { grid-column: 3; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   body.view-console #slots > .card:not(.open) .meta {
-    grid-column: 3;
+    grid-column: 4;
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  body.view-console #slots > .card:not(.open) .toolbar { grid-column: 4; margin: 0; flex-wrap: nowrap; justify-content: flex-end; }
+  body.view-console #slots > .card:not(.open) .toolbar { grid-column: 5; margin: 0; flex-wrap: nowrap; justify-content: flex-end; }
   body.view-console #slots > .card:not(.open) .actions { flex-wrap: nowrap; }
   body.view-console #slots > .card:not(.open) .actions button { padding: 4px 8px; }
   body.view-console #slots > .card:not(.open) form,
@@ -574,18 +616,29 @@
   }
   article.card[data-engine="tensorfold"] .rapid-only,
   article.card[data-engine="comfyui"] .rapid-only,
+  article.card[data-engine="optiq"] .rapid-only,
   article.card[data-engine="comfyui"] .llm-only,
   article.card[data-engine="rapid-mlx"] .tensorfold-only,
   article.card[data-engine="comfyui"] .tensorfold-only,
+  article.card[data-engine="optiq"] .tensorfold-only,
   article.card[data-engine="rapid-mlx"] .comfy-only,
-  article.card[data-engine="tensorfold"] .comfy-only { display: none !important; }
+  article.card[data-engine="tensorfold"] .comfy-only,
+  article.card[data-engine="optiq"] .comfy-only,
+  article.card[data-engine="rapid-mlx"] .custom-model,
+  article.card[data-engine="comfyui"] .custom-model,
+  article.card[data-engine="rapid-mlx"] .optiq-only,
+  article.card[data-engine="tensorfold"] .optiq-only,
+  article.card[data-engine="comfyui"] .optiq-only { display: none !important; }
 </style>
 </head>
 <body>
 <header class="top">
   <h1>Rapid-MLX-panel</h1>
-  <p class="lede">Varje plats är en port, ett API-namn och en uppsättning vikter. Valen sparas på disk och finns kvar efter omstart. En modell som redan körs lämnas ifred tills du stoppar eller startar om den.</p>
+  <p class="lede">Varje plats är en port, ett API-namn och en uppsättning vikter. Valen sparas på disk och finns kvar efter omstart. Flera platser får dela port och namn. Bara en av dem kan köra på porten åt gången. En modell som redan körs lämnas ifred tills du stoppar eller startar om den.</p>
   <div class="row" style="margin-top:14px">
+    <label class="view-switch" title="Aktiva modeller läggs överst. En manuell flytt stänger av auto-sorteringen.">
+      <input type="checkbox" id="auto-sort"> Auto-sortera
+    </label>
     <label class="view-switch">Vy
       <select id="view-picker" aria-describedby="view-note">
         <option value="classic">Klassisk</option>
@@ -598,11 +651,13 @@
     </label>
     <button type="button" id="new-slot">Ny plats</button>
     <button type="button" class="secondary" id="reload-models">Uppdatera vikter</button>
+    <button type="button" class="secondary" id="check-engines">Kontrollera motorer</button>
     <span class="hint" id="state-path"></span>
   </div>
   <p class="hint" id="view-note"></p>
 </header>
 <main>
+  <section id="engines" class="card" hidden></section>
   <div id="banner" class="banner" hidden></div>
   <div id="draft"></div>
   <div id="slots"></div>
@@ -614,15 +669,26 @@ const STATUS = {
   running: "Körs via panelen",
   external: "Körs, startad utanför panelen",
   detached: "Processen lever på en annan port",
+  busy: "Porten används av en annan plats",
   stopped: "Stoppad",
 };
 const SHORT_STATUS = {
   running: "Körs",
   external: "Extern",
   detached: "Annan port",
+  busy: "Upptagen",
   stopped: "Stoppad",
 };
 const VIEW_KEY = "rapid-mlx-panel-view";
+const ENGINES_KEY = "rapid-mlx-panel-engines";
+const SORT_KEY = "rapid-mlx-panel-auto-sort";
+const ACTIVE_STATUS = new Set(["running", "external", "detached"]);
+const ENGINE_STATUS = {
+  behind: "Uppdatering finns",
+  current: "Aktuell",
+  ahead: "Nyare än senaste släpp",
+  unknown: "Okänd",
+};
 const dirty = new Set();
 let slots = [];
 let models = [];
@@ -633,6 +699,88 @@ function showError(error) {
   banner.hidden = !error;
   banner.textContent = error ? String(error.message || error) : "";
 }
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[char]));
+}
+
+function enginesOpen() {
+  return localStorage.getItem(ENGINES_KEY) === "open";
+}
+
+function paintEnginesToggle(root) {
+  const open = enginesOpen();
+  root.classList.toggle("collapsed", !open);
+  const button = root.querySelector("[data-act='engines-toggle']");
+  if (!button) return;
+  button.textContent = open ? "Dölj" : "Visa";
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function renderEngines(report) {
+  const root = document.querySelector("#engines");
+  const engines = report.engines || [];
+  if (!engines.length) {
+    root.hidden = true;
+    return;
+  }
+  root.hidden = false;
+  const note = (report.errors || []).length
+    ? `<p class="hint">${escapeHtml(report.errors.join(" · "))}</p>`
+    : "";
+  root.innerHTML = `<div class="head"><div><h2>Motorer</h2><p class="hint">Uppdatera stoppar inga servrar. Stoppa motorns platser först. rapid-mlx kör upgrade. TensorFold hämtar macOS-arkivet, kontrollerar sha256 och pekar om symlänken. OptiQ uppgraderas med pip i sin egen venv.</p></div><button type="button" class="quiet" data-act="engines-toggle">Visa</button></div><div class="engine-body">${note}<div class="engine-grid">${engines.map((engine) => {
+    const history = (engine.history || []).map((row) => {
+      const version = escapeHtml(row.version);
+      const label = /^https:\/\/github\.com\//.test(row.url || "")
+        ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noreferrer">${version}</a>`
+        : version;
+      const when = row.published ? ` · ${escapeHtml(row.published)}` : "";
+      const summary = row.summary ? ` — ${escapeHtml(row.summary)}` : "";
+      return `<li>${label}${when}${summary}</li>`;
+    }).join("");
+    const installed = escapeHtml(engine.installed || "saknas");
+    const latest = escapeHtml(engine.latest || "okänt");
+    const upgrade = engine.status === "behind"
+      ? `<p class="meta"><button type="button" data-update="${escapeHtml(engine.id)}">Uppdatera</button></p>`
+      : "";
+    const status = ENGINE_STATUS[engine.status] || engine.status;
+    return `<article class="engine"><h3>${escapeHtml(engine.name)} <span class="status ${escapeHtml(engine.status)}">${escapeHtml(status)}</span></h3><p class="meta">Installerad ${installed} · senaste ${latest}</p><p class="hint">${escapeHtml(engine.binary)}</p>${upgrade}<ul>${history}</ul></article>`;
+  }).join("")}</div></div>`;
+  paintEnginesToggle(root);
+}
+
+async function loadEngines(refresh = false) {
+  try {
+    renderEngines(await api(`/api/engines${refresh ? "?refresh=1" : ""}`));
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function updateEngine(id) {
+  if (!window.confirm(`Uppdatera ${id}? Pågående servrar för motorn måste vara stoppade.`)) return;
+  const button = document.querySelector(`[data-update="${id}"]`);
+  if (button) button.disabled = true;
+  try {
+    renderEngines(await api(`/api/engines/${id}/update`, { method: "POST", body: "{}" }));
+  } catch (error) {
+    showError(error);
+    if (button) button.disabled = false;
+  }
+}
+
+document.querySelector("#engines").addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-act='engines-toggle']");
+  if (toggle) {
+    localStorage.setItem(ENGINES_KEY, enginesOpen() ? "closed" : "open");
+    paintEnginesToggle(document.querySelector("#engines"));
+    return;
+  }
+  const button = event.target.closest("[data-update]");
+  if (button) updateEngine(button.dataset.update);
+});
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -798,13 +946,14 @@ function field(label, html, help, klass = "") {
 }
 
 function engineId(value) {
-  if (value === "tensorfold" || value === "comfyui") return value;
+  if (value === "tensorfold" || value === "comfyui" || value === "optiq") return value;
   return "rapid-mlx";
 }
 
 function engineLabel(value) {
   if (value === "tensorfold") return "TensorFold";
   if (value === "comfyui") return "ComfyUI";
+  if (value === "optiq") return "OptiQ";
   return "rapid-mlx";
 }
 
@@ -843,19 +992,20 @@ function editor(slot) {
   const kvOption = (value, label) => `<option value="${value}" ${kv === value ? "selected" : ""}>${label}</option>`;
   return `<form>
     ${section("Plats", "", `
-    ${field("Namn", input("name", slot.name, "required"), "Namnet på platsen i panelen. Klienter ser det inte.")}
-    ${field("Port", input("port", slot.port, "required inputmode='numeric'"), "Porten servern lyssnar på, bara på 127.0.0.1. Byt port kräver omstart.")}
+    ${field("Namn", input("name", slot.name, "required"), "Namnet på platsen i panelen. Klienter ser det inte. Flera platser får ha samma namn.")}
+    ${field("Port", input("port", slot.port, "required inputmode='numeric'"), "Porten servern lyssnar på, bara på 127.0.0.1. Flera platser får dela port, men bara en får köra åt gången. Byt port kräver omstart.")}
     ${field("API-namn", input("api_name", slot.api_name, "placeholder='samma som vikterna'"), "Modellnamnet klienten skickar i anropet. Tomt betyder vikternas eget namn. rapid-mlx skickar --served-model-name när det skiljer sig. Zig skickar alltid --name när fältet är ifyllt.", "llm-only")}
-    <label><span class="field-name">Motor${tip("rapid-mlx är Python-motorn med KV-cache, MTP och prefix-cache. TensorFold Zig är den fristående binären, med drafter, Cortheon, learn och slide. ComfyUI är diffusionsservern för bilder. Den laddar inga vikter vid start. Arbetsflödet väljer dem.")}</span><select name="engine">
+    <label><span class="field-name">Motor${tip("rapid-mlx är Python-motorn med KV-cache, MTP och prefix-cache. TensorFold Zig är den fristående binären, med drafter, Cortheon, learn och slide. OptiQ är mlx-optiq och krävs för OptiQ-kvantiserade paket med sidovagnar i optiq/. ComfyUI är diffusionsservern för bilder. Den laddar inga vikter vid start. Arbetsflödet väljer dem.")}</span><select name="engine">
       <option value="rapid-mlx" ${engine === "rapid-mlx" ? "selected" : ""}>rapid-mlx</option>
       <option value="tensorfold" ${engine === "tensorfold" ? "selected" : ""}>TensorFold Zig</option>
+      <option value="optiq" ${engine === "optiq" ? "selected" : ""}>OptiQ</option>
       <option value="comfyui" ${engine === "comfyui" ? "selected" : ""}>ComfyUI</option>
     </select></label>
     <p class="advice comfy-only">Diffusionsserver. Vikterna väljs i arbetsflödet. Start, stopp och omstart gäller processen på den här porten.</p>
     `)}
     ${section("Modell", "llm-only", `
     <label class="wide weights llm-only"><span class="field-name">Vikter${tip("Checkpointen som laddas. Listan är cachade modeller. En lokal sökväg som inte finns i listan skrivs i Egen vikt när motorn är Zig. Peka på 4-bit-mappen, inte på ett repo som innehåller flera kvantiseringar.")}</span><select class="weight-select" name="model" data-selected="${escapeAttr(slot.model || "")}"></select></label>
-    <label class="wide tensorfold-only"><span class="field-name">Egen vikt${tip("Repo eller mapp som inte finns i listan, till exempel en lokal 4-bit-katalog. Fylls fältet i vinner det över listan.")}</span>${input("model_custom", customRepo(slot.model), "placeholder='TensorFold/org/repo'")}</label>
+    <label class="wide custom-model"><span class="field-name">Egen vikt${tip("Repo eller mapp som inte finns i listan. För OptiQ, Hugging Face-id som mlx-community/Qwen3.8-27B-OBLITERATED-OptiQ-4bit. Fylls fältet i vinner det över listan.")}</span>${input("model_custom", customRepo(slot.model), "placeholder='org/repo'")}</label>
     <label class="wide rapid-only"><span class="field-name">Embedding, valfritt${tip("En extra embedding-modell på samma server, via --embedding-model. Tomt betyder ingen. Används av klienter som ber om embeddings, inte av själva chatten.")}</span><select class="embedding-select" name="embedding_model" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
     <label class="rapid-only"><span class="field-name">Körfält${tip("Automatiskt låter rapid-mlx välja text eller vision från modellnamnet. Text tvingar --text-only även om config.json säger vision. Vision tvingar --mllm, stänger av aliasets automatiska MTP och kräver ett fungerande vision-torn.")}</span><select name="lane">
       <option value="auto" ${lane === "auto" ? "selected" : ""}>Automatiskt</option>
@@ -889,6 +1039,19 @@ function editor(slot) {
     <label class="rapid-only"><span class="field-name">MTP-token${tip("Antal token som gissas per steg när MTP-djup är Eget djup. Fältet är avstängt när katalogens djup används.")}</span>${input("mtp_tokens", slot.mtp_tokens ?? "", depthAuto ? "inputmode='numeric' disabled" : "inputmode='numeric'")}</label>
     <label class="wide rapid-only"><span class="field-name">MTP-utkast${tip("Sidomodellens vikter för MTP. Tomt betyder aliasets eget utkast, ofta en mtp-mapp bredvid huvudvikterna. Välj en vikt bara när aliaset saknar utkast eller du vill peka på ett annat.")}</span><select class="mtp-select" name="mtp_model" data-selected="${escapeAttr(slot.mtp_model || "")}"></select></label>
     `)}
+    ${section("OptiQ", "optiq-only", `
+    <label class="optiq-only"><span class="field-name">Spekulativ avkodning${tip("MTP skickar --mtp och använder huvudet i optiq/mtp.safetensors. Av lämnar flaggan borta. Rapid-mlx MTP-utkast används inte.")}</span><select name="optiq_spec">
+      <option value="default" ${spec === "mtp" ? "" : "selected"}>Av</option>
+      <option value="mtp" ${spec === "mtp" ? "selected" : ""}>MTP</option>
+    </select></label>
+    <label class="optiq-only"><span class="field-name">KV-cache${tip("Tomt eller bf16 är fp16, OptiQ:s standard. int4 skickar --kv-bits 4 och int8 skickar --kv-bits 8. En per-lager kv_config.json anges som --kv-config i extra flaggor.")}</span><select name="optiq_kv">
+      <option value="default" ${kv === "int4" || kv === "int8" ? "" : "selected"}>fp16</option>
+      <option value="int8" ${kv === "int8" ? "selected" : ""}>8-bit</option>
+      <option value="int4" ${kv === "int4" ? "selected" : ""}>4-bit</option>
+    </select></label>
+    <label class="wide optiq-only"><span class="field-name">Embedding, valfritt${tip("En extra embedding-modell på samma server, via --embedding-model. Den måste vara en decoder med last-token pooling, till exempel Qwen3-Embedding.")}</span><select class="embedding-select" name="optiq_embedding" data-selected="${escapeAttr(slot.embedding_model || "")}"></select></label>
+    <label class="wide optiq-only"><span class="field-name">API-nyckel${tip("Nyckeln klienten skickar som Authorization: Bearer. OptiQ läser den från OPTIQ_API_KEY, så den hamnar inte på kommandoraden eller i loggen. Samma nyckel ska in i harnessen. Tomt betyder att servern inte kräver en egen nyckel, och en harness som vägrar tom nyckel kan inte anropa den.")}</span><input type="password" name="optiq_api_key" value="${escapeAttr(slot.api_key || "")}" autocomplete="off" placeholder="samma nyckel som i harnessen"></label>
+    `)}
     ${section("TensorFold", "tensorfold-only", `
     <label class="wide tensorfold-only"><span class="field-name">Drafter${tip("Mindre modell som föreslår flera token åt gången, till exempel z-lab/Qwen3.8-27B-DFlash2. Tomt val betyder ingen drafter. Utkastet måste matcha målmodellens bredd och lager. MTP-sidovagnen är inte en DFlash-drafter.")}</span><select class="drafter-select" name="drafter" data-selected="${escapeAttr(slot.drafter || "")}"></select></label>
     <label class="wide tensorfold-only"><span class="field-name">Egen drafter${tip("Repo eller sökväg till en drafter som inte finns i listan. Fylls fältet i vinner det över listan.")}</span>${input("drafter_custom", customRepo(slot.drafter), "placeholder='org/repo, valfritt'")}</label>
@@ -898,11 +1061,11 @@ function editor(slot) {
     <label class="wide tensorfold-only"><span class="field-name">API-nyckel${tip("Skickas som --api-key-file, inte som text på kommandoraden. Krävs när Slide är på. Klienten skickar samma nyckel. Nyckeln sparas i panelens platsfil och i en fil med rättigheten 0600.")}</span><input type="password" name="api_key" value="${escapeAttr(slot.api_key || "")}" autocomplete="off" placeholder="krävs för slide"></label>
     `)}
     ${section("Resurser", "llm-only", `
-    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar, upp till modellens egen gräns. Tomt låter motorn uppskatta från minnet. Ett eget tal gäller ändå tillsammans med GPU-taket. Gäller rapid-mlx och Zig.", "llm-only")}
+    ${field("Kontext", input("context_length", slot.context_length, "placeholder='automatisk'"), "Högsta antal token för prompt plus svar. Tomt låter motorn uppskatta från minnet. OptiQ skickar talet som --max-context. Gäller rapid-mlx, Zig och OptiQ.", "llm-only")}
     <label class="rapid-only"><span class="field-name">GPU-minne 0.01–1${tip("Andel av enhetens Metallminne som servern får ta, 0.01 till 1. Tomt är automatiskt: budgeten mäts efter laddade vikter och landar mellan cirka 0,90 och 0,97. 1 är taket. Värdet gäller först efter omstart.")}</span>${input("gpu_memory_utilization", slot.gpu_memory_utilization, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Prefix-cache MB${tip("Tak i megabyte för prefix-cachen. Tomt betyder automatiskt, ungefär 20 procent av RAM. Lägre tak kastar gamla promptbörjor tidigare.")}</span>${input("cache_memory_mb", slot.cache_memory_mb, "placeholder='automatiskt'")}</label>
     <label class="rapid-only"><span class="field-name">Hybrid-cache poster${tip("Hur många återkommande tillstånd som sparas för omstart av samma prompt, på modeller som Mamba eller GatedDeltaNet. Tomt eller 0 stänger av det. Vanliga transformermodeller använder inte posterna.")}</span>${input("hybrid_cache_entries", slot.hybrid_cache_entries, "placeholder='standard'")}</label>
-    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. Gäller rapid-mlx och Zig.", "llm-only")}
+    ${field("Max tokens", input("max_tokens", slot.max_tokens, "placeholder='32768'"), "Standardtak för hur många token ett svar får generera när klienten inte anger ett eget. Tomt skickar ingen flagga. rapid-mlx använder då 32768. OptiQ skickar --max-tokens.", "llm-only")}
     <label class="check rapid-only"><input type="checkbox" name="pin_system_prompt" ${slot.pin_system_prompt ? "checked" : ""}><span>Fäst systemprompt</span>${tip("Håller systempromptens block kvar i prefix-cachen så det inte kastas när minnet tar slut. Nästa anrop med samma systemprompt slipper räkna om den delen. Kräver att prefix-cachen är på. Prompten i sig ändras inte, och vikterna skrivs inte om.")}</label>
     `)}
     ${section("Extra", "", `
@@ -919,22 +1082,36 @@ function readForm(form) {
   data.learn = Boolean(form.elements.learn && form.elements.learn.checked);
   data.slide = Boolean(form.elements.slide && form.elements.slide.checked);
   data.engine = engineId(data.engine);
+  if (data.engine === "optiq") {
+    data.spec_decode = data.optiq_spec === "mtp" ? "mtp" : "off";
+    data.kv_cache_dtype = data.optiq_kv || "default";
+    data.kv_cache_turboquant = "default";
+    if (data.optiq_embedding != null) data.embedding_model = data.optiq_embedding;
+    data.api_key = data.optiq_api_key || "";
+    delete data.kv_mode;
+  }
+  delete data.optiq_spec;
+  delete data.optiq_kv;
+  delete data.optiq_embedding;
+  delete data.optiq_api_key;
   const modelCustom = (data.model_custom || "").trim();
   const drafterCustom = (data.drafter_custom || "").trim();
   delete data.model_custom;
   delete data.drafter_custom;
-  if (data.engine === "tensorfold" && modelCustom) data.model = modelCustom;
+  if ((data.engine === "tensorfold" || data.engine === "optiq") && modelCustom) data.model = modelCustom;
   if (data.engine === "tensorfold" && drafterCustom) data.drafter = drafterCustom;
   data.mtp_tokens_auto = data.mtp_depth_mode === "auto";
   delete data.mtp_depth_mode;
   const kv = data.kv_mode || "default";
   delete data.kv_mode;
-  if (kv.startsWith("tq-")) {
-    data.kv_cache_dtype = "default";
-    data.kv_cache_turboquant = kv.slice(3);
-  } else {
-    data.kv_cache_dtype = kv;
-    data.kv_cache_turboquant = "default";
+  if (data.engine !== "optiq") {
+    if (kv.startsWith("tq-")) {
+      data.kv_cache_dtype = "default";
+      data.kv_cache_turboquant = kv.slice(3);
+    } else {
+      data.kv_cache_dtype = kv;
+      data.kv_cache_turboquant = "default";
+    }
   }
   for (const key of ["port", "mtp_tokens", "context_length", "cache_memory_mb", "hybrid_cache_entries", "max_tokens"]) {
     if (!(key in data)) continue;
@@ -951,6 +1128,10 @@ function signature(slot) {
   return [slot.status, slot.pid, slot.command, slot.live_command, slot.name, slot.port, slot.model, slot.api_name].join("\n");
 }
 
+function formSignature(slot) {
+  return [slot.command, slot.name, slot.port, slot.model, slot.api_name, slot.engine].join("\n");
+}
+
 function placeLine(slot) {
   const api = slot.api_name || "samma som vikterna";
   const engine = engineLabel(slot.engine);
@@ -965,6 +1146,7 @@ function card(slot) {
   article.dataset.engine = engineId(slot.engine);
   article.innerHTML = `
     <div class="head">
+      <button type="button" class="drag-handle" draggable="true" aria-label="Flytta ${escapeAttr(slot.name)}" title="Dra för att sortera">⠿</button>
       <div class="title-block">
         <p class="title-kicker">Vald plats</p>
         <h2>${escapeText(slot.name)}</h2>
@@ -982,7 +1164,7 @@ function card(slot) {
       <div class="row log-tools">
         <button type="button" class="quiet" data-act="log-color" aria-pressed="false" title="Färglägg nivåer, tider, tal, strängar och sökvägar. Av stänger tillbaka till en färg.">Färglägg</button>
       </div>
-      <pre class="log" hidden></pre>
+      <div class="log-scroll" hidden><pre class="log"></pre></div>
     </div>
     </div>
     <div class="rail">
@@ -1008,6 +1190,7 @@ function card(slot) {
   const meta = article.querySelector(".meta");
   meta.title = meta.textContent;
   article.dataset.sig = signature(slot);
+  article.dataset.formSig = formSignature(slot);
   article.querySelectorAll("select.weight-select, select.embedding-select, select.drafter-select").forEach(fillSelect);
   article.querySelectorAll("select.mtp-select").forEach(fillMtpSelect);
   const form = article.querySelector("form");
@@ -1057,7 +1240,93 @@ function card(slot) {
   });
   paintButtons(article, slot);
   paintLogColorButtons();
+  if (slot.id === "ny") article.querySelector(".drag-handle").remove();
+  else bindDrag(article);
   return article;
+}
+
+let draggingId = "";
+
+function clearDropMarks() {
+  document.querySelectorAll(".card.drop-before, .card.drop-after").forEach((node) => {
+    node.classList.remove("drop-before", "drop-after");
+  });
+}
+
+function bindDrag(article) {
+  const handle = article.querySelector(".drag-handle");
+  handle.addEventListener("dragstart", (event) => {
+    draggingId = article.dataset.id;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggingId);
+    article.classList.add("dragging");
+  });
+  handle.addEventListener("dragend", () => {
+    draggingId = "";
+    article.classList.remove("dragging");
+    clearDropMarks();
+  });
+  article.addEventListener("dragover", (event) => {
+    if (!draggingId || draggingId === article.dataset.id) return;
+    event.preventDefault();
+    const after = event.clientY > article.getBoundingClientRect().top + article.getBoundingClientRect().height / 2;
+    article.classList.toggle("drop-before", !after);
+    article.classList.toggle("drop-after", after);
+  });
+  article.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget && article.contains(event.relatedTarget)) return;
+    article.classList.remove("drop-before", "drop-after");
+  });
+  article.addEventListener("drop", (event) => {
+    if (!draggingId || draggingId === article.dataset.id) return;
+    event.preventDefault();
+    const after = article.classList.contains("drop-after");
+    clearDropMarks();
+    moveSlot(draggingId, article.dataset.id, after);
+  });
+}
+
+function autoSortOn() {
+  return localStorage.getItem(SORT_KEY) === "on";
+}
+
+function sortedSlots(list) {
+  if (!autoSortOn()) return list;
+  const active = [];
+  const rest = [];
+  for (const slot of list) (ACTIVE_STATUS.has(slot.status) ? active : rest).push(slot);
+  return active.concat(rest);
+}
+
+function sameOrder(left, right) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+async function persistOrder(ids) {
+  await api("/api/slots/order", { method: "POST", body: JSON.stringify({ ids }) });
+}
+
+function placeOrder(list, save) {
+  if (draggingId) return;
+  const ordered = sortedSlots(list);
+  render(ordered);
+  if (!save || draggingId) return;
+  const ids = ordered.map((slot) => slot.id);
+  const previous = list.map((slot) => slot.id);
+  if (!sameOrder(ids, previous)) persistOrder(ids).catch(showError);
+}
+
+function moveSlot(fromId, targetId, after) {
+  localStorage.setItem(SORT_KEY, "off");
+  const box = document.querySelector("#auto-sort");
+  if (box) box.checked = false;
+  const ids = slots.map((slot) => slot.id).filter((id) => id !== fromId);
+  const index = ids.indexOf(targetId);
+  if (index < 0) return;
+  ids.splice(after ? index + 1 : index, 0, fromId);
+  const byId = new Map(slots.map((slot) => [slot.id, slot]));
+  render(ids.map((id) => byId.get(id)));
+  persistOrder(ids).catch(showError);
 }
 
 function escapeText(value) {
@@ -1066,9 +1335,10 @@ function escapeText(value) {
 
 function paintButtons(article, slot) {
   const status = slot.status || "stopped";
-  article.querySelector('[data-act="start"]').disabled = status === "running" || status === "external";
-  article.querySelector('[data-act="stop"]').disabled = status === "stopped";
-  article.querySelector('[data-act="restart"]').disabled = status === "stopped";
+  const live = status === "running" || status === "external";
+  article.querySelector('[data-act="start"]').disabled = live || status === "busy";
+  article.querySelector('[data-act="stop"]').disabled = status === "stopped" || status === "busy";
+  article.querySelector('[data-act="restart"]').disabled = status === "stopped" || status === "busy";
 }
 
 function updateLive(article, slot) {
@@ -1091,6 +1361,7 @@ function updateLive(article, slot) {
   if (!dirty.has(slot.id)) article.dataset.engine = engineId(slot.engine);
   article.querySelector("h2").textContent = slot.name;
   paintButtons(article, slot);
+  article.dataset.sig = signature(slot);
 }
 
 function render(next) {
@@ -1111,11 +1382,12 @@ function render(next) {
       }
       continue;
     }
-    if (dirty.has(slot.id)) updateLive(article, slot);
+    if (dirty.has(slot.id) || article.dataset.formSig === formSignature(slot)) updateLive(article, slot);
     else {
       const wasOpen = article.classList.contains("open");
       const wasFocus = article.classList.contains("focus");
       const wasFollowing = followingLogs.has(slot.id);
+      const snap = captureLog(article);
       const replacement = card(slot);
       if (wasFocus) replacement.classList.add("focus");
       if (wasOpen) {
@@ -1123,7 +1395,10 @@ function render(next) {
         replacement.querySelector('[data-act="edit"]').textContent = "Stäng";
       }
       article.replaceWith(replacement);
-      if (wasFollowing) followLog(replacement, slot.id);
+      if (snap && !snap.hidden) {
+        applyLogSnapshot(replacement, snap);
+        followLog(replacement, slot.id);
+      } else if (wasFollowing) followLog(replacement, slot.id);
     }
   }
   for (const article of root.querySelectorAll("[data-id]")) {
@@ -1133,6 +1408,12 @@ function render(next) {
       activitySeen.delete(article.dataset.id);
       article.remove();
     }
+  }
+  const current = [...root.querySelectorAll("[data-id]")];
+  const ordered = slots.map((slot) => root.querySelector(`[data-id="${slot.id}"]`)).filter(Boolean);
+  const sameOrder = current.length === ordered.length && ordered.every((article, index) => article === current[index]);
+  if (!sameOrder) {
+    for (const article of ordered) root.appendChild(article);
   }
   ensureWorkspaceFocus();
   syncActivity();
@@ -1175,7 +1456,7 @@ function renderUnassigned(items) {
 async function refresh() {
   const state = await api("/api/state");
   document.querySelector("#state-path").textContent = state.state_dir;
-  render(state.slots);
+  placeOrder(state.slots, true);
   renderUnassigned(state.unassigned || []);
 }
 
@@ -1300,24 +1581,92 @@ function syncActivity() {
   }
 }
 
-async function paintLog(article, id) {
+function logBox(article) {
+  return article.querySelector(".log-scroll");
+}
+
+function logPinned(box) {
+  return box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+}
+
+function pinLog(box, stick, scrollTop) {
+  const apply = () => {
+    box.dataset.writing = "1";
+    const top = stick ? box.scrollHeight : scrollTop;
+    box.scrollTop = top;
+    box.dataset.stick = stick ? "1" : "0";
+    box.dataset.scrollTop = String(box.scrollTop);
+  };
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      box.dataset.writing = "0";
+    });
+  });
+}
+
+function captureLog(article) {
+  const box = logBox(article);
   const log = article.querySelector(".log");
-  if (!log || log.hidden) return;
+  if (!box || !log) return null;
+  return {
+    raw: log.dataset.raw || "",
+    hidden: box.hidden,
+    wrapHidden: article.querySelector(".log-wrap")?.hidden ?? true,
+    stick: box.dataset.stick !== "0",
+    scrollTop: Number(box.dataset.scrollTop || box.scrollTop) || 0,
+  };
+}
+
+function applyLogSnapshot(article, snap) {
+  const box = logBox(article);
+  const log = article.querySelector(".log");
+  const wrap = article.querySelector(".log-wrap");
+  if (!box || !log || !snap) return;
+  log.dataset.raw = snap.raw;
+  box.dataset.stick = snap.stick ? "1" : "0";
+  box.dataset.scrollTop = String(snap.scrollTop);
+  renderLog(log);
+  box.hidden = snap.hidden;
+  if (wrap) wrap.hidden = snap.wrapHidden;
+  watchLogScroll(box);
+  pinLog(box, snap.stick, snap.scrollTop);
+}
+
+function watchLogScroll(box) {
+  if (box.dataset.scrollWatch === "1") return;
+  box.dataset.scrollWatch = "1";
+  box.addEventListener("scroll", () => {
+    if (box.dataset.writing === "1") return;
+    const pinned = logPinned(box);
+    box.dataset.stick = pinned ? "1" : "0";
+    if (!pinned) box.dataset.scrollTop = String(box.scrollTop);
+  });
+}
+
+async function paintLog(article, id) {
+  const box = logBox(article);
+  const log = article.querySelector(".log");
+  if (!box || !log || box.hidden) return;
+  watchLogScroll(box);
   const payload = await api(`/api/slots/${id}/log`);
   const next = payload.log || "Ingen logg ännu.";
   if (log.dataset.raw === next) return;
-  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 32;
+  const stick = box.dataset.stick !== "0";
+  const previousTop = Number(box.dataset.scrollTop || box.scrollTop) || 0;
   log.dataset.raw = next;
   renderLog(log);
-  if (stick) log.scrollTop = log.scrollHeight;
+  pinLog(box, stick, previousTop);
 }
 
 function followLog(article, id) {
   stopLog(id);
   followingLogs.add(id);
-  const log = article.querySelector(".log");
+  const box = logBox(article);
   const wrap = article.querySelector(".log-wrap");
-  log.hidden = false;
+  if (box) box.hidden = false;
   if (wrap) wrap.hidden = false;
   paintLogColorButtons();
   const button = article.querySelector('[data-act="log"]');
@@ -1325,7 +1674,7 @@ function followLog(article, id) {
   let timer = 0;
   const tick = () => {
     if (logTimers.get(id) !== timer) return;
-    if (!article.isConnected || log.hidden) {
+    if (!article.isConnected || !box || box.hidden) {
       stopLog(id);
       return;
     }
@@ -1466,15 +1815,20 @@ async function onAction(event, id) {
     if (button.dataset.act === "log-color") {
       localStorage.setItem(LOG_COLOR_KEY, logColorOn() ? "off" : "on");
       paintLogColorButtons();
-      document.querySelectorAll("pre.log").forEach(renderLog);
+      document.querySelectorAll("pre.log").forEach((log) => {
+        renderLog(log);
+        const box = log.closest(".log-scroll");
+        if (!box || box.hidden) return;
+        pinLog(box, box.dataset.stick !== "0", Number(box.dataset.scrollTop || box.scrollTop) || 0);
+      });
       return;
     }
     if (button.dataset.act === "log") {
       if (followingLogs.has(id)) {
         stopLog(id);
-        const log = article.querySelector(".log");
+        const box = article.querySelector(".log-scroll");
         const wrap = article.querySelector(".log-wrap");
-        log.hidden = true;
+        if (box) box.hidden = true;
         if (wrap) wrap.hidden = true;
         button.textContent = "Logg";
         syncActivity();
@@ -1579,12 +1933,20 @@ function applyView(mode) {
 }
 
 applyView(storedView());
+const autoSort = document.querySelector("#auto-sort");
+autoSort.checked = autoSortOn();
+autoSort.addEventListener("change", () => {
+  localStorage.setItem(SORT_KEY, autoSort.checked ? "on" : "off");
+  placeOrder(slots, true);
+});
 document.querySelector("#view-picker").addEventListener("change", (event) => {
   applyView(event.target.value);
 });
 document.querySelector("#new-slot").addEventListener("click", showDraft);
 document.querySelector("#reload-models").addEventListener("click", () => refreshModels().catch(showError));
+document.querySelector("#check-engines").addEventListener("click", () => loadEngines(true));
 refresh().catch(showError);
+loadEngines(false);
 refreshModels().catch(showError);
 setInterval(() => refresh().catch(showError), 4000);
 </script>

@@ -7,9 +7,13 @@ Slots (name, port, API name, weights, and serve flags) persist in
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
+import tarfile
+import tempfile
 import shlex
 import signal
 import socket
@@ -21,7 +25,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+import urllib.request
+from urllib.parse import parse_qs, urlparse
 
 SCHEMA_VERSION = 1
 PANEL_PORT_DEFAULT = 8770
@@ -55,6 +60,12 @@ VALUE_FLAGS = {
     "--default-top-p",
     "--default-top-k",
     "--name",
+    "--model",
+    "--max-context",
+    "--kv-bits",
+    "--kv-config",
+    "--ngram-draft",
+    "--prompt-cache-bytes",
     "--drafter",
     "--context",
     "--learn-dir",
@@ -91,6 +102,10 @@ RESERVED_EXTRA = {
     "--name",
     "--context",
     "--listen",
+    "--model",
+    "--max-context",
+    "--kv-bits",
+    "--mtp",
 }
 
 LOCK = threading.Lock()
@@ -102,7 +117,7 @@ PREFIX_MODES = {"default", "off"}
 KV_DTYPES = {"default", "bf16", "int8", "int4"}
 KV_TURBOQUANT = {"default", "off", "v4", "k8v4"}
 SPEC_MODES = {"default", "off", "mtp"}
-ENGINES = {"rapid-mlx", "tensorfold", "comfyui"}
+ENGINES = {"rapid-mlx", "tensorfold", "comfyui", "optiq"}
 
 _CATALOG_SCRIPT = r"""
 import json
@@ -214,6 +229,358 @@ def tensorfold_bin() -> str:
     if override:
         return override
     return "/Users/otto/.local/bin/tensorfold"
+
+
+def optiq_bin() -> str:
+    override = os.environ.get("OPTIQ_BIN", "").strip()
+    if override:
+        return override
+    return "/Users/otto/.local/bin/optiq"
+
+
+RELEASE_TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+_ENGINE_CACHE: dict[str, Any] = {"payload": None, "at": 0.0}
+ENGINE_CACHE_SECONDS = 6 * 60 * 60
+
+
+def _engine_feeds() -> dict[str, dict[str, str]]:
+    return {
+        "rapid-mlx": {
+            "name": "rapid-mlx",
+            "releases_url": "https://api.github.com/repos/raullenchai/Rapid-MLX/releases?per_page=12",
+            "upgrade": "rapid-mlx upgrade",
+        },
+        "tensorfold": {
+            "name": "tensorfold",
+            "releases_url": "https://api.github.com/repos/ashhart/TensorFold/releases?per_page=12",
+            "upgrade": "brew upgrade ashhart/tensorfold/tensorfold",
+        },
+    }
+
+
+def parse_version(text: str) -> str | None:
+    """Last MAJOR.MINOR.PATCH in a --version line."""
+    found = re.findall(r"\d+\.\d+\.\d+", text or "")
+    return found[-1] if found else None
+
+
+def version_key(version: str) -> tuple[int, int, int]:
+    match = RELEASE_TAG_RE.fullmatch(version.strip())
+    if not match:
+        raise PanelError(f"ogiltig version {version}")
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def version_status(installed: str | None, latest: str | None) -> str:
+    if not installed or not latest:
+        return "unknown"
+    try:
+        left, right = version_key(installed), version_key(latest)
+    except PanelError:
+        return "unknown"
+    if left < right:
+        return "behind"
+    if left > right:
+        return "ahead"
+    return "current"
+
+
+def installed_engine_version(binary: str) -> str | None:
+    if not binary or not os.path.isfile(binary) or not os.access(binary, os.X_OK):
+        return None
+    try:
+        completed = subprocess.run(
+            [binary, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_version((completed.stdout or "") + (completed.stderr or ""))
+
+
+def _release_summary(body: str) -> str:
+    for line in (body or "").splitlines():
+        text = line.strip().lstrip("#").strip()
+        if text and not text.startswith("<!--"):
+            return text[:180]
+    return ""
+
+
+def parse_github_releases(payload: Any) -> list[dict[str, str]]:
+    if not isinstance(payload, list):
+        raise PanelError("ogiltigt svar från GitHub")
+    history: list[dict[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict) or item.get("prerelease") or item.get("draft"):
+            continue
+        tag = str(item.get("tag_name") or "")
+        match = RELEASE_TAG_RE.fullmatch(tag)
+        if not match:
+            continue
+        published = str(item.get("published_at") or "")[:10]
+        history.append(
+            {
+                "version": f"{match.group(1)}.{match.group(2)}.{match.group(3)}",
+                "published": published,
+                "summary": _release_summary(str(item.get("body") or "")),
+                "url": str(item.get("html_url") or ""),
+            }
+        )
+    history.sort(key=lambda row: version_key(row["version"]), reverse=True)
+    return history[:8]
+
+
+def fetch_pypi_version(package: str) -> str:
+    request = urllib.request.Request(
+        f"https://pypi.org/pypi/{package}/json",
+        headers={"User-Agent": "rapid-mlx-panel"},
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    version = str((payload.get("info") or {}).get("version") or "")
+    if parse_version(version) != version:
+        raise PanelError(f"ogiltig PyPI-version för {package}")
+    return version
+
+
+def fetch_github_releases(url: str) -> Any:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "rapid-mlx-panel",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def engine_cache_path() -> Path:
+    return state_dir() / "engine-releases.json"
+
+
+def _load_engine_cache() -> dict[str, Any]:
+    raw = _read_json(engine_cache_path(), {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def engine_status(*, refresh: bool = False) -> dict[str, Any]:
+    """Installed version against the latest stable GitHub release. Does not upgrade."""
+    now = time.time()
+    cached = _ENGINE_CACHE.get("payload")
+    if (
+        not refresh
+        and isinstance(cached, dict)
+        and now - float(_ENGINE_CACHE.get("at") or 0) < ENGINE_CACHE_SECONDS
+    ):
+        return cached
+    disk = _load_engine_cache()
+    fresh = refresh or now - float(disk.get("fetched_at") or 0) >= ENGINE_CACHE_SECONDS
+    releases = disk.get("releases") if isinstance(disk.get("releases"), dict) else {}
+    errors: list[str] = []
+    if fresh:
+        releases = {}
+        for engine, feed in _engine_feeds().items():
+            try:
+                releases[engine] = parse_github_releases(fetch_github_releases(feed["releases_url"]))
+            except (OSError, json.JSONDecodeError, PanelError, ValueError) as exc:
+                errors.append(f"{engine}: {exc}")
+                previous = disk.get("releases") if isinstance(disk.get("releases"), dict) else {}
+                releases[engine] = previous.get(engine) if isinstance(previous.get(engine), list) else []
+        try:
+            releases["optiq"] = [
+                {
+                    "version": fetch_pypi_version("mlx-optiq"),
+                    "published": "",
+                    "summary": "PyPI mlx-optiq",
+                    "url": "https://pypi.org/project/mlx-optiq/",
+                }
+            ]
+        except (OSError, json.JSONDecodeError, PanelError, ValueError, KeyError) as exc:
+            errors.append(f"optiq: {exc}")
+            previous = disk.get("releases") if isinstance(disk.get("releases"), dict) else {}
+            releases["optiq"] = previous.get("optiq") if isinstance(previous.get("optiq"), list) else []
+        try:
+            _write_json(
+                engine_cache_path(),
+                {"fetched_at": now, "releases": releases},
+            )
+        except OSError as exc:
+            errors.append(str(exc))
+    binaries = {
+        "rapid-mlx": rapid_mlx_bin(),
+        "tensorfold": tensorfold_bin(),
+        "optiq": optiq_bin(),
+    }
+    feeds = dict(_engine_feeds())
+    feeds["optiq"] = {"name": "optiq", "upgrade": "pip install -U mlx-optiq"}
+    engines = []
+    for engine, feed in feeds.items():
+        history = releases.get(engine) if isinstance(releases.get(engine), list) else []
+        history = [row for row in history if isinstance(row, dict) and row.get("version")]
+        latest = str(history[0]["version"]) if history else None
+        installed = installed_engine_version(binaries[engine])
+        engines.append(
+            {
+                "id": engine,
+                "name": feed["name"],
+                "binary": binaries[engine],
+                "installed": installed,
+                "latest": latest,
+                "status": version_status(installed, latest),
+                "upgrade": feed["upgrade"],
+                "history": history,
+            }
+        )
+    payload = {
+        "fetched_at": disk.get("fetched_at") if not fresh else now,
+        "engines": engines,
+        "errors": errors,
+    }
+    _ENGINE_CACHE["payload"] = payload
+    _ENGINE_CACHE["at"] = now
+    return payload
+
+
+def assert_engine_idle(engine: str, processes: list[dict[str, Any]] | None = None) -> None:
+    """Refuse an upgrade while a serve process for this engine is still up."""
+    found = scan_serve_processes() if processes is None else processes
+    ports = [str(item.get("port")) for item in found if item.get("engine") == engine and item.get("port")]
+    if ports:
+        raise PanelError(f"stoppa {engine} på port {', '.join(ports)} innan uppdatering")
+
+
+def download_file(url: str, dest: Path) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": "rapid-mlx-panel"})
+    with urllib.request.urlopen(request, timeout=180) as response, dest.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+
+def verify_sha256(archive: Path, checksum_text: str) -> None:
+    token = (checksum_text or "").split()
+    if not token or not re.fullmatch(r"[0-9a-fA-F]{64}", token[0]):
+        raise PanelError("checksumfilen saknar en sha256")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest.lower() != token[0].lower():
+        raise PanelError("checksumman för TensorFold-arkivet stämmer inte")
+
+
+def _retarget_symlink(link: Path, target: Path) -> None:
+    temporary = link.with_name(link.name + ".new")
+    if temporary.exists() or temporary.is_symlink():
+        temporary.unlink()
+    temporary.symlink_to(target)
+    os.replace(temporary, link)
+
+
+def install_tensorfold_release(version: str, link: Path) -> str:
+    """Download the macOS arm64 archive, check sha256, and retarget the symlink."""
+    if not RELEASE_TAG_RE.fullmatch(version):
+        raise PanelError(f"ogiltig version {version}")
+    if not link.is_symlink():
+        raise PanelError(f"{link} är inte en symlänk, så panelen byter den inte")
+    name = f"tensorfold-{version}-macos-arm64"
+    base = f"https://github.com/ashhart/TensorFold/releases/download/v{version}/{name}.tar.gz"
+    current = Path(os.path.realpath(link))
+    parent = current.parent.parent.parent
+    if not parent.is_dir():
+        raise PanelError(f"hittar ingen katalog att lägga {name} i")
+    destination = parent / name
+    with tempfile.TemporaryDirectory(prefix="tensorfold-update-") as temporary:
+        root = Path(temporary)
+        archive = root / f"{name}.tar.gz"
+        checksum = root / f"{name}.tar.gz.sha256"
+        download_file(base, archive)
+        download_file(base + ".sha256", checksum)
+        verify_sha256(archive, checksum.read_text(encoding="utf-8"))
+        with tarfile.open(archive, "r:gz") as bundle:
+            bundle.extractall(root, filter="data")
+        extracted = root / name
+        binary = extracted / "bin" / "tensorfold-native"
+        if not binary.is_file():
+            raise PanelError("arkivet saknar bin/tensorfold-native")
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.move(str(extracted), destination)
+    installed = destination / "bin" / "tensorfold-native"
+    os.chmod(installed, 0o755)
+    _retarget_symlink(link, installed)
+    seen = installed_engine_version(str(link))
+    if seen != version:
+        raise PanelError(f"tensorfold rapporterar {seen or 'ingen version'} efter bytet")
+    return str(installed)
+
+
+def upgrade_rapid_mlx(binary: str) -> str:
+    completed = subprocess.run(
+        [binary, "upgrade", "-y"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if completed.returncode != 0:
+        detail = ((completed.stderr or "") + (completed.stdout or "")).strip()
+        raise PanelError(detail[-500:] or "rapid-mlx upgrade misslyckades")
+    seen = installed_engine_version(binary)
+    if not seen:
+        raise PanelError("rapid-mlx svarar inte på --version efter uppgraderingen")
+    return seen
+
+
+def upgrade_optiq(binary: str) -> str:
+    """Upgrade the dedicated OptiQ venv. Does not touch the rapid-mlx install."""
+    if not os.path.isfile(binary):
+        raise PanelError(f"hittar inte {binary}")
+    python = Path(binary).resolve().parent / "python3"
+    if not python.is_file():
+        python = Path(binary).resolve().parent / "python"
+    if not python.is_file():
+        raise PanelError(f"hittar inte Python bredvid {binary}")
+    completed = subprocess.run(
+        [str(python), "-m", "pip", "install", "-U", "mlx-optiq"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if completed.returncode != 0:
+        detail = ((completed.stderr or "") + (completed.stdout or "")).strip()
+        raise PanelError(detail[-500:] or "pip install mlx-optiq misslyckades")
+    seen = installed_engine_version(binary)
+    if not seen:
+        raise PanelError("optiq svarar inte på --version efter uppgraderingen")
+    return seen
+
+
+def update_engine(engine: str) -> dict[str, Any]:
+    """Upgrade one engine, then return a fresh status report."""
+    known = set(_engine_feeds()) | {"optiq"}
+    if engine not in known:
+        raise PanelError("okänd motor")
+    assert_engine_idle(engine)
+    if engine == "optiq":
+        upgrade_optiq(optiq_bin())
+    elif engine == "rapid-mlx":
+        binary = rapid_mlx_bin()
+        if not os.path.isfile(binary):
+            raise PanelError(f"hittar inte {binary}")
+        upgrade_rapid_mlx(binary)
+    else:
+        report = engine_status(refresh=True)
+        row = next(item for item in report["engines"] if item["id"] == "tensorfold")
+        latest = row.get("latest")
+        if not latest:
+            raise PanelError("ingen stabil TensorFold-version att hämta")
+        if row.get("status") == "current":
+            raise PanelError(f"tensorfold {latest} är redan installerad")
+        install_tensorfold_release(str(latest), Path(tensorfold_bin()))
+    _ENGINE_CACHE["payload"] = None
+    _ENGINE_CACHE["at"] = 0
+    return engine_status(refresh=True)
 
 
 def _blank_options() -> dict[str, Any]:
@@ -416,7 +783,7 @@ def _validate_slot(slot: dict[str, Any]) -> dict[str, Any]:
         raise PanelError("API-namnet får inte innehålla mellanslag")
     engine = str(slot.get("engine") or "rapid-mlx").strip()
     if engine not in ENGINES:
-        raise PanelError("motorn måste vara rapid-mlx, tensorfold eller comfyui")
+        raise PanelError("motorn måste vara rapid-mlx, tensorfold, comfyui eller optiq")
     model = str(slot.get("model") or "").strip()
     if any(ord(char) < 32 for char in model):
         raise PanelError("vikterna får inte innehålla styrtecken")
@@ -525,20 +892,20 @@ def _validate_slot(slot: dict[str, Any]) -> dict[str, Any]:
 
 
 def _reject_duplicates(slots: list[dict[str, Any]]) -> None:
-    names: set[str] = set()
-    ports: set[int] = set()
     ids: set[str] = set()
     for slot in slots:
-        folded = slot["name"].casefold()
-        if folded in names:
-            raise PanelError(f"namnet {slot['name']!r} finns redan")
-        if slot["port"] in ports:
-            raise PanelError(f"port {slot['port']} används av en annan plats")
         if slot["id"] in ids:
             raise PanelError(f"id {slot['id']!r} finns redan")
-        names.add(folded)
-        ports.add(slot["port"])
         ids.add(slot["id"])
+
+
+def _runtime_owner(pids: dict[str, Any], pid: int | None) -> str | None:
+    if not isinstance(pid, int):
+        return None
+    for slot_id, record in pids.items():
+        if isinstance(record, dict) and record.get("pid") == pid:
+            return str(slot_id)
+    return None
 
 
 def slugify(name: str) -> str:
@@ -620,9 +987,43 @@ def _comfyui_argv(slot: dict[str, Any]) -> list[str]:
     return argv
 
 
+def _optiq_argv(slot: dict[str, Any]) -> list[str]:
+    """mlx-optiq serve. MTP and per-layer weights come from the OptiQ package."""
+    argv = [
+        optiq_bin(),
+        "serve",
+        "--model",
+        slot["model"],
+        "--host",
+        HOST,
+        "--port",
+        str(slot["port"]),
+    ]
+    if slot.get("spec_decode") == "mtp":
+        argv.append("--mtp")
+    kv = slot.get("kv_cache_dtype") or "default"
+    if kv == "int4":
+        argv.extend(["--kv-bits", "4"])
+    elif kv == "int8":
+        argv.extend(["--kv-bits", "8"])
+    if slot.get("embedding_model"):
+        argv.extend(["--embedding-model", slot["embedding_model"]])
+    if slot.get("context_length"):
+        argv.extend(["--max-context", str(slot["context_length"])])
+    if slot.get("max_tokens"):
+        argv.extend(["--max-tokens", str(slot["max_tokens"])])
+    if slot.get("extra_args"):
+        argv.extend(shlex.split(slot["extra_args"]))
+    return argv
+
+
 def build_argv(slot: dict[str, Any]) -> list[str]:
     if slot.get("engine") == "comfyui":
         return _comfyui_argv(slot)
+    if slot.get("engine") == "optiq":
+        if not slot.get("model"):
+            raise PanelError("välj vikter innan platsen startas")
+        return _optiq_argv(slot)
     if not slot.get("model"):
         raise PanelError("välj vikter innan platsen startas")
     if slot.get("engine") == "tensorfold":
@@ -730,6 +1131,8 @@ def parse_serve_command(command: str) -> dict[str, Any] | None:
             engine = "rapid-mlx"
         elif "tensorfold" in base:
             engine = "tensorfold"
+        elif base == "optiq":
+            engine = "optiq"
         if token == "serve" and engine:
             serve_at = index
             break
@@ -749,6 +1152,9 @@ def parse_serve_command(command: str) -> dict[str, Any] | None:
                     port = inline
                 elif key in {"--served-model-name", "--name"}:
                     served_name = inline
+                elif key == "--model":
+                    model = inline
+                    model_seen = True
                 index += 1
                 continue
             if key in VALUE_FLAGS and index + 1 < len(tokens):
@@ -757,6 +1163,9 @@ def parse_serve_command(command: str) -> dict[str, Any] | None:
                     port = value
                 elif key in {"--served-model-name", "--name"}:
                     served_name = value
+                elif key == "--model":
+                    model = value
+                    model_seen = True
                 index += 2
                 continue
             index += 1
@@ -894,12 +1303,36 @@ def _comfyui_advice(slot: dict[str, Any]) -> str:
     )
 
 
+def _optiq_advice(slot: dict[str, Any]) -> str:
+    parts = [
+        "optiq serve laddar OptiQ-paketet, inklusive vision-tornet och MTP-huvudet i optiq/."
+    ]
+    if slot.get("spec_decode") == "mtp":
+        parts.append("MTP är på via --mtp.")
+    else:
+        parts.append("MTP är av. Sätt spekulativ avkodning till MTP för Qwen3.8-huvudet.")
+    kv = slot.get("kv_cache_dtype") or "default"
+    if kv == "int4":
+        parts.append("KV-cachen är jämn 4-bit.")
+    elif kv == "int8":
+        parts.append("KV-cachen är jämn 8-bit.")
+    else:
+        parts.append("KV-cachen är fp16. En blandad kv_config.json läggs i extra flaggor som --kv-config.")
+    if str(slot.get("api_key") or "").strip():
+        parts.append("API-nyckeln skickas som OPTIQ_API_KEY. Harnessen ska använda samma nyckel.")
+    else:
+        parts.append("Ingen API-nyckel. En harness som vägrar tom nyckel får inget svar.")
+    return " ".join(parts)
+
+
 def describe_slot(slot: dict[str, Any], profile: dict[str, Any] | None) -> str:
     """One or two sentences about what the saved choices do for this weight."""
     if slot.get("engine") == "comfyui":
         return _comfyui_advice(slot)
     if slot.get("engine") == "tensorfold":
         return _tensorfold_advice(slot)
+    if slot.get("engine") == "optiq":
+        return _optiq_advice(slot)
     lane = str(slot.get("lane") or "auto")
     spec = str(slot.get("spec_decode") or "default")
     dtype = str(slot.get("kv_cache_dtype") or "default")
@@ -1028,7 +1461,14 @@ def classify(
         if isinstance(record, dict) and isinstance(record.get("pid"), int):
             owned_pid = record["pid"]
         owned = [proc for proc in on_port if proc["pid"] == owned_pid]
-        chosen = owned[0] if owned else (on_port[0] if on_port else None)
+        chosen = owned[0] if owned else None
+        if chosen is None and on_port:
+            holder = on_port[0]
+            owner = _runtime_owner(pids, holder.get("pid"))
+            # Several slots may share a port. Only the owner, or the first
+            # slot when nobody in the panel owns the process, shows it as live.
+            if owner == slot["id"] or (owner is None and holder["pid"] not in claimed):
+                chosen = holder
         if chosen is not None:
             view["status"] = "running" if chosen["pid"] == owned_pid else "external"
             view["pid"] = chosen["pid"]
@@ -1036,6 +1476,12 @@ def classify(
             view["live_command"] = chosen.get("command")
             view["live_model"] = chosen.get("model")
             claimed.add(chosen["pid"])
+        elif on_port:
+            view["status"] = "busy"
+            view["pid"] = None
+            view["uptime"] = None
+            view["live_command"] = None
+            view["live_model"] = None
         elif owned_pid and _pid_alive(owned_pid):
             view["status"] = "detached"
             view["pid"] = owned_pid
@@ -1132,6 +1578,12 @@ def start_slot(slot_id: str) -> dict[str, Any]:
             try:
                 env = os.environ.copy()
                 env["PYTHONUNBUFFERED"] = "1"
+                if slot.get("engine") == "optiq":
+                    key = str(slot.get("api_key") or "").strip()
+                    if key:
+                        env["OPTIQ_API_KEY"] = key
+                    else:
+                        env.pop("OPTIQ_API_KEY", None)
                 process = subprocess.Popen(
                     argv,
                     stdout=log_handle,
@@ -1241,8 +1693,14 @@ def stop_slot(slot_id: str) -> dict[str, Any]:
             target = owned
             group = True
         elif on_port:
-            target = on_port[0]["pid"]
-            group = False
+            holder = on_port[0]
+            owner = _runtime_owner(runtime.get("pids", {}), holder.get("pid"))
+            first = next(item for item in slots if item["port"] == slot["port"])
+            # A shared port belongs to the slot that started it. An external
+            # process belongs to the first slot that lists that port.
+            if owner == slot_id or (owner is None and first["id"] == slot_id):
+                target = holder["pid"]
+                group = owner == slot_id
         elif owned and _pid_alive(owned):
             target = owned
             group = True
@@ -1375,6 +1833,21 @@ def update_slot(slot_id: str, body: dict[str, Any]) -> dict[str, Any]:
     return slot
 
 
+def reorder_slots(ids: Any) -> list[dict[str, Any]]:
+    if not isinstance(ids, list) or not ids or any(not isinstance(item, str) for item in ids):
+        raise PanelError("ordningen måste vara en lista med id")
+    if len(set(ids)) != len(ids):
+        raise PanelError("ordningen har dubbletter")
+    with LOCK:
+        slots = load_slots()
+        by_id = {slot["id"]: slot for slot in slots}
+        if set(ids) != set(by_id):
+            raise PanelError("ordningen måste innehålla varje plats en gång")
+        ordered = [by_id[slot_id] for slot_id in ids]
+        save_slots(ordered)
+    return ordered
+
+
 def delete_slot(slot_id: str) -> None:
     with LOCK:
         slots = load_slots()
@@ -1452,6 +1925,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/models":
                 self._send(200, list_models())
                 return
+            if path == "/api/engines":
+                query = parse_qs(parsed.query)
+                refresh = (query.get("refresh") or ["0"])[0] in {"1", "true", "yes"}
+                self._send(200, engine_status(refresh=refresh))
+                return
             if path.startswith("/api/slots/") and path.endswith("/log"):
                 slot_id = path[len("/api/slots/") : -len("/log")].strip("/")
                 if not ID_RE.fullmatch(slot_id):
@@ -1467,6 +1945,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path.rstrip("/")
         try:
+            if path == "/api/slots/order":
+                body = self._read_json()
+                self._send(200, {"slots": reorder_slots(body.get("ids"))})
+                return
             if path == "/api/slots":
                 self._send(201, create_slot(self._read_json()))
                 return
@@ -1474,6 +1956,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, preview_slot(self._read_json()))
                 return
             parts = [part for part in path.split("/") if part]
+            if len(parts) == 4 and parts[:2] == ["api", "engines"] and parts[3] == "update":
+                self._send(200, update_engine(parts[2]))
+                return
             if len(parts) == 4 and parts[:2] == ["api", "slots"]:
                 slot_id, action = parts[2], parts[3]
                 if not ID_RE.fullmatch(slot_id):
